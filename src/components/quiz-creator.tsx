@@ -42,7 +42,10 @@ import {
   ChevronRight,
   Clipboard,
   Download,
+  FileCode2,
+  FileJson2,
   FileText,
+  FileWord,
   KeyRound,
   Loader2,
   RefreshCw,
@@ -56,6 +59,7 @@ import { jsPDF } from "jspdf";
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from "docx";
 import { saveAs } from "file-saver";
 import { convert } from 'html-to-text';
+import { ThemeToggle } from "./theme-toggle";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -305,7 +309,7 @@ export function QuizCreator() {
 
   const totalQuestions = questions.fillInTheBlank.length + questions.multipleChoice.length + questions.trueFalse.length;
 
-  const exportToFile = (format: 'txt' | 'pdf' | 'docx') => {
+  const exportToFile = (format: 'txt' | 'pdf' | 'docx' | 'json' | 'md') => {
     const questionText = (q: Question) => {
         if(q.type === 'mcq' && q.options) {
             return `${q.question}\n${q.options.join('\n')}`;
@@ -357,6 +361,29 @@ export function QuizCreator() {
         Packer.toBlob(doc).then(blob => {
             saveAs(blob, 'quizcraft-questions.docx');
         });
+    } else if (format === 'json') {
+        const allQuestions = {
+            fillInTheBlank: questions.fillInTheBlank.map(({id, context, ...q}) => q),
+            multipleChoice: questions.multipleChoice.map(({id, context, ...q}) => q),
+            trueFalse: questions.trueFalse.map(({id, context, ...q}) => q),
+        };
+        const blob = new Blob([JSON.stringify(allQuestions, null, 2)], { type: 'application/json;charset=utf-8' });
+        saveAs(blob, 'quizcraft-questions.json');
+    } else if (format === 'md') {
+        const markdownContent = ['Fill-in-the-Blank', 'Multiple Choice', 'True/False'].map(type => {
+            const qList = type === 'Fill-in-the-Blank' ? questions.fillInTheBlank : type === 'Multiple Choice' ? questions.multipleChoice : questions.trueFalse;
+            if (qList.length === 0) return '';
+            
+            let content = `## ${type}\n\n`;
+            qList.forEach((q, i) => {
+                content += `${i + 1}. ${questionText(q)}\n`;
+                content += `    *Answer: ${q.answer}*\n\n`;
+            });
+            return content;
+        }).join('');
+
+        const blob = new Blob([markdownContent], { type: 'text/markdown;charset=utf-8' });
+        saveAs(blob, 'quizcraft-questions.md');
     }
   };
 
@@ -419,12 +446,15 @@ export function QuizCreator() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="p-8 pb-4">
-        <div className="flex items-center gap-3">
-            <Bot className="w-10 h-10 text-primary" />
-            <div>
-                <h1 className="text-3xl font-bold font-headline">QuizCraft AI</h1>
-                <p className="text-muted-foreground">Generate exam questions from your PDF study materials.</p>
+        <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+                <Bot className="w-10 h-10 text-primary" />
+                <div>
+                    <h1 className="text-3xl font-bold font-headline">QuizCraft AI</h1>
+                    <p className="text-muted-foreground">Generate exam questions from your PDF study materials.</p>
+                </div>
             </div>
+            <ThemeToggle />
         </div>
       </header>
 
@@ -531,8 +561,10 @@ export function QuizCreator() {
                   <div className="flex gap-2">
                       <TooltipProvider>
                           <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('txt')}><FileText className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .txt</TooltipContent></Tooltip>
+                          <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('json')}><FileJson2 className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .json</TooltipContent></Tooltip>
+                          <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('md')}><FileCode2 className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .md</TooltipContent></Tooltip>
                           <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('pdf')}><Download className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .pdf</TooltipContent></Tooltip>
-                          <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('docx')}><FileText className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .docx</TooltipContent></Tooltip>
+                          <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('docx')}><FileWord className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .docx</TooltipContent></Tooltip>
                       </TooltipProvider>
                   </div>
                 </div>
