@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import * as pdfjs from "pdfjs-dist";
-import { Document, Page, pdfjs as pdfjsReact } from "react-pdf";
 import {
   generateQuestions,
   GenerateQuestionsOutput,
@@ -42,10 +41,10 @@ import {
   ChevronRight,
   Clipboard,
   Download,
+  File,
   FileCode2,
   FileJson2,
   FileText,
-  FileWord,
   KeyRound,
   Loader2,
   RefreshCw,
@@ -564,7 +563,7 @@ export function QuizCreator() {
                           <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('json')}><FileJson2 className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .json</TooltipContent></Tooltip>
                           <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('md')}><FileCode2 className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .md</TooltipContent></Tooltip>
                           <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('pdf')}><Download className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .pdf</TooltipContent></Tooltip>
-                          <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('docx')}><FileWord className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .docx</TooltipContent></Tooltip>
+                          <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('docx')}><File className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .docx</TooltipContent></Tooltip>
                       </TooltipProvider>
                   </div>
                 </div>
