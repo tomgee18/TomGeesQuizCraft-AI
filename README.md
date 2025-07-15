@@ -2,7 +2,7 @@
 
 QuizCraft AI is a web application that leverages the power of Google's Gemini AI to automatically generate mock exam questions from your academic PDF documents. Simply upload your study materials, and get a set of fill-in-the-blank, multiple-choice, and true/false questions to help you prepare for your exams.
 
-![QuizCraft AI Screenshot](https://placehold.co/800x600.png?text=QuizCraft+AI+Screenshot)
+![QuizCraft AI Screenshot](https://storage.googleapis.com/project-spark-341006-public/a6c57f0f-6147-497b-b5d1-72f3d6118d0c.png)
 
 ## ✨ Features
 
