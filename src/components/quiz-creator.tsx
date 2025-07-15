@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -27,6 +28,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,20 +40,21 @@ import {
 } from "@/components/ui/tooltip";
 import {
   Bot,
-  ChevronDown,
-  ChevronRight,
+  CheckCircle,
   Clipboard,
   Download,
   File,
   FileCode2,
   FileJson2,
   FileText,
+  GraduationCap,
   KeyRound,
   Loader2,
   RefreshCw,
   Sparkles,
   UploadCloud,
   X,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -128,8 +131,9 @@ export function QuizCreator() {
   const [documentChunks, setDocumentChunks] = React.useState<string[]>([]);
   const [questions, setQuestions] = React.useState<QuestionState>(initialQuestions);
   const [questionCounts, setQuestionCounts] = React.useState<QuestionCounts>({ fib: 3, mcq: 3, tf: 3 });
-  const [openAnswers, setOpenAnswers] = React.useState<Set<string>>(new Set()); // Tracks which answers are currently visible
   const [regeneratingId, setRegeneratingId] = React.useState<string | null>(null); // Tracks which question is being regenerated
+  const [userAnswers, setUserAnswers] = React.useState<Record<string, string>>({}); // Stores the user's answers
+  const [score, setScore] = React.useState<{ correct: number, total: number } | null>(null); // Stores the quiz score after grading
 
   // Effect to run on component mount to avoid hydration errors with localStorage.
   React.useEffect(() => {
@@ -147,6 +151,17 @@ export function QuizCreator() {
     const key = e.target.value;
     setApiKey(key);
     localStorage.setItem("gemini-api-key", key);
+  };
+
+  /**
+   * Resets the quiz state to its initial values.
+   */
+  const resetQuiz = () => {
+    setQuestions(initialQuestions);
+    setDocumentChunks([]);
+    setUserAnswers({});
+    setScore(null);
+    setStatus("idle");
   };
 
   /**
@@ -173,9 +188,7 @@ export function QuizCreator() {
       return;
     }
     setFile(selectedFile);
-    setQuestions(initialQuestions); // Reset questions when a new file is uploaded
-    setDocumentChunks([]);
-    setStatus("idle");
+    resetQuiz(); // Reset quiz state when a new file is uploaded
   };
 
   /**
@@ -214,8 +227,7 @@ export function QuizCreator() {
 
     setStatus("parsing");
     setProgress(0);
-    setQuestions(initialQuestions);
-    setDocumentChunks([]);
+    resetQuiz();
 
     try {
       let fullText = "";
@@ -275,7 +287,8 @@ export function QuizCreator() {
     setStatus("generating");
     setProgress(0);
     setQuestions(initialQuestions);
-    setOpenAnswers(new Set());
+    setUserAnswers({});
+    setScore(null);
 
     try {
       let allGeneratedQuestions: QuestionState = { fillInTheBlank: [], multipleChoice: [], trueFalse: [] };
@@ -348,17 +361,18 @@ export function QuizCreator() {
         const [questionText, ...answerParts] = q.split('Answer:');
         const answer = answerParts.join('Answer:').trim();
         let options;
+        let finalQuestion = questionText.trim();
 
         // Special parsing for multiple-choice questions to extract options.
         if (type === 'mcq') {
             const mcqParts = questionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
             if(mcqParts) {
                 const [, question, opts] = mcqParts;
+                finalQuestion = question.trim();
                 options = opts.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean);
-                return { id: `${type}-${Date.now()}-${i}`, type, question: question.trim(), answer, options, context };
             }
         }
-        return { id: `${type}-${Date.now()}-${i}`, type, question: questionText.trim(), answer, context };
+        return { id: `${type}-${Date.now()}-${i}`, type, question: finalQuestion, answer, options, context };
       }).filter(q => q.question && q.answer); // Filter out any malformed questions
 
     return {
@@ -386,17 +400,26 @@ export function QuizCreator() {
       const [newQuestionText, ...answerParts] = response.regeneratedQuestion.split('Answer:');
       const newAnswer = answerParts.join('Answer:').trim();
 
-      const updatedQuestion = { ...question, question: newQuestionText.trim(), answer: newAnswer };
+      let newOptions;
+      let finalNewQuestion = newQuestionText.trim();
       
       // If it's an MCQ, re-parse the options.
       if (question.type === 'mcq' && newQuestionText) {
           const mcqParts = newQuestionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
           if (mcqParts) {
               const [, qText, opts] = mcqParts;
-              updatedQuestion.question = qText.trim();
-              updatedQuestion.options = opts.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean);
+              finalNewQuestion = qText.trim();
+              newOptions = opts.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean);
           }
       }
+
+      const updatedQuestion = { 
+        ...question, 
+        question: finalNewQuestion, 
+        answer: newAnswer, 
+        ...(newOptions && { options: newOptions })
+      };
+
 
       // Update the state with the new question.
       setQuestions(prev => {
@@ -416,19 +439,36 @@ export function QuizCreator() {
   };
 
   /**
-   * Toggles the visibility of a question's answer.
-   * @param id The ID of the question to toggle.
+   * Handles changes to a user's answer for a given question.
    */
-  const toggleAnswer = (id: string) => {
-    setOpenAnswers(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
+  const handleAnswerChange = (questionId: string, answer: string) => {
+    setUserAnswers(prev => ({ ...prev, [questionId]: answer }));
+  };
+
+  /**
+   * Grades the quiz, calculates the score, and updates the status.
+   */
+  const gradeQuiz = () => {
+    let correctCount = 0;
+    const allQuestions = [...questions.fillInTheBlank, ...questions.multipleChoice, ...questions.trueFalse];
+    
+    allQuestions.forEach(q => {
+      const userAnswer = userAnswers[q.id];
+      if (userAnswer) {
+        // For MCQ, compare the option letter (e.g., "C.") with the answer
+        if (q.type === 'mcq') {
+          if (userAnswer.trim().toLowerCase().startsWith(q.answer.trim().toLowerCase())) {
+            correctCount++;
+          }
+        // For other types, do a case-insensitive comparison
+        } else if (userAnswer.trim().toLowerCase() === q.answer.trim().toLowerCase()) {
+          correctCount++;
+        }
       }
-      return newSet;
     });
+
+    setScore({ correct: correctCount, total: allQuestions.length });
+    setStatus("submitted");
   };
 
   const totalQuestions = questions.fillInTheBlank.length + questions.multipleChoice.length + questions.trueFalse.length;
@@ -443,7 +483,7 @@ export function QuizCreator() {
         if(q.type === 'mcq' && q.options) {
             return `${q.question}\n${q.options.join('\n')}`;
         }
-        return q.question;
+        return q.question.replace('____', '________________');
     }
     // Helper to generate the full text content of the quiz.
     const fullText = (showAnswers: boolean) => 
@@ -519,6 +559,70 @@ export function QuizCreator() {
   };
 
   /**
+   * Renders the interactive part of a question (input, radio group).
+   */
+  const renderAnswerField = (q: Question) => {
+    const isGraded = status === 'submitted';
+    const userAnswer = userAnswers[q.id];
+    let isCorrect;
+    if(isGraded && userAnswer) {
+      isCorrect = q.type === 'mcq'
+        ? userAnswer.trim().toLowerCase().startsWith(q.answer.trim().toLowerCase())
+        : userAnswer.trim().toLowerCase() === q.answer.trim().toLowerCase();
+    }
+
+    if (q.type === 'fib') {
+      const parts = q.question.split('____');
+      return (
+        <div className="flex items-center flex-wrap gap-2">
+          {parts[0]}
+          <Input
+            type="text"
+            value={userAnswers[q.id] || ''}
+            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+            disabled={isGraded}
+            className={cn("w-48", isGraded && (isCorrect ? 'border-green-500' : 'border-red-500'))}
+          />
+          {parts[1]}
+        </div>
+      );
+    }
+    if (q.type === 'mcq' && q.options) {
+      return (
+        <div>
+          <p className="font-medium mb-2">{q.question}</p>
+          <RadioGroup value={userAnswers[q.id]} onValueChange={(val) => handleAnswerChange(q.id, val)} disabled={isGraded}>
+            {q.options.map((opt, i) => (
+              <div key={i} className="flex items-center space-x-2">
+                <RadioGroupItem value={opt} id={`${q.id}-${i}`} />
+                <Label htmlFor={`${q.id}-${i}`} className={cn(isGraded && q.answer.startsWith(opt[0]) && 'text-green-500 font-bold')}>{opt}</Label>
+              </div>
+            ))}
+          </RadioGroup>
+        </div>
+      );
+    }
+    if (q.type === 'tf') {
+      return (
+        <div>
+          <p className="font-medium mb-2">{q.question}</p>
+          <RadioGroup value={userAnswers[q.id]} onValueChange={(val) => handleAnswerChange(q.id, val)} disabled={isGraded}>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="True" id={`${q.id}-true`} />
+              <Label htmlFor={`${q.id}-true`} className={cn(isGraded && q.answer === 'True' && 'text-green-500 font-bold')}>True</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="False" id={`${q.id}-false`} />
+              <Label htmlFor={`${q.id}-false`} className={cn(isGraded && q.answer === 'False' && 'text-green-500 font-bold')}>False</Label>
+            </div>
+          </RadioGroup>
+        </div>
+      );
+    }
+    return <p className="font-medium mb-2">{q.question}</p>;
+  };
+
+  /**
    * A sub-component to render a list of questions for a specific category.
    */
   const QuestionList = ({ title, data }: { title: string; data: Question[] }) => (
@@ -530,48 +634,46 @@ export function QuizCreator() {
       </AccordionTrigger>
       <AccordionContent>
         <div className="space-y-4">
-          {data.map((q) => (
-            <Card key={q.id} className="overflow-hidden">
-              <CardContent className="p-4">
-                <div className="flex justify-between items-start gap-4">
-                  <div>
-                    <p className="font-medium mb-2">{q.question}</p>
-                    {q.options && (
-                      <ul className="space-y-1 text-muted-foreground">
-                        {q.options.map((opt, i) => <li key={i}>{opt}</li>)}
-                      </ul>
-                    )}
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" onClick={() => handleRegenerate(q)} disabled={regeneratingId === q.id}>
-                          {regeneratingId === q.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent><p>Regenerate Question</p></TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </CardContent>
-              <CardFooter className="bg-muted/50 px-4 py-2">
-                <div className="w-full">
-                  <button onClick={() => toggleAnswer(q.id)} className="flex items-center gap-1 text-sm font-medium text-primary">
-                    {openAnswers.has(q.id) ? "Hide Answer" : "Show Answer"}
-                    {openAnswers.has(q.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                  </button>
-                  {openAnswers.has(q.id) && (
-                    <div className="mt-2 text-sm text-foreground/80 p-2 bg-background rounded-md flex justify-between items-center">
-                      <p><span className="font-semibold">Answer:</span> {q.answer}</p>
-                      <Button variant="ghost" size="icon" onClick={() => navigator.clipboard.writeText(q.answer)}>
-                        <Clipboard className="h-4 w-4" />
-                      </Button>
+          {data.map((q) => {
+            const isGraded = status === 'submitted';
+            const userAnswer = userAnswers[q.id];
+            let isCorrect;
+            if(isGraded && userAnswer) {
+              isCorrect = q.type === 'mcq'
+                ? userAnswer.trim().toLowerCase().startsWith(q.answer.trim().toLowerCase())
+                : userAnswer.trim().toLowerCase() === q.answer.trim().toLowerCase();
+            }
+
+            return (
+              <Card key={q.id} className={cn("overflow-hidden", isGraded && (isCorrect ? 'border-green-500' : 'border-red-500'))}>
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-grow">{renderAnswerField(q)}</div>
+                    <div className="flex flex-col items-center gap-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => handleRegenerate(q)} disabled={regeneratingId === q.id || isGraded}>
+                              {regeneratingId === q.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent><p>Regenerate Question</p></TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      {isGraded && (isCorrect ? <CheckCircle className="h-5 w-5 text-green-500"/> : <XCircle className="h-5 w-5 text-red-500"/>)}
                     </div>
-                  )}
-                </div>
-              </CardFooter>
-            </Card>
-          ))}
+                  </div>
+                </CardContent>
+                {isGraded && (
+                  <CardFooter className="bg-muted/50 px-4 py-2">
+                    <div className="text-sm">
+                      <span className="font-semibold">Correct Answer:</span> {q.answer}
+                    </div>
+                  </CardFooter>
+                )}
+              </Card>
+            )
+          })}
         </div>
       </AccordionContent>
     </AccordionItem>
@@ -590,7 +692,7 @@ export function QuizCreator() {
                 <Bot className="w-10 h-10 text-primary" />
                 <div>
                     <h1 className="text-3xl font-bold font-headline">QuizCraft AI</h1>
-                    <p className="text-muted-foreground">Generate exam questions from your PDF study materials.</p>
+                    <p className="text-muted-foreground">Generate exam questions from your study materials.</p>
                 </div>
             </div>
             <ThemeToggle />
@@ -649,7 +751,7 @@ export function QuizCreator() {
           </Card>
 
           {/* Generation Settings */}
-          {status === "parsed" && documentChunks.length > 0 && (
+          {(status === "parsed" || status === "complete" || status === "submitted") && documentChunks.length > 0 && (
             <Card className="animate-in fade-in">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Sparkles className="text-primary"/> Generation Settings</CardTitle>
@@ -707,13 +809,13 @@ export function QuizCreator() {
             </Card>
           )}
 
-          {/* Complete State */}
-          {totalQuestions > 0 && status === 'complete' && (
+          {/* Complete/Submitted State */}
+          {totalQuestions > 0 && (status === 'complete' || status === 'submitted') && (
             <Card className="animate-in fade-in">
               <CardHeader>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-4 flex-wrap">
                   <div>
-                    <CardTitle>Generated Questions</CardTitle>
+                    <CardTitle>Your Custom Quiz</CardTitle>
                     <CardDescription>{totalQuestions} questions generated from your document.</CardDescription>
                   </div>
                   {/* Export Buttons */}
@@ -729,17 +831,32 @@ export function QuizCreator() {
                 </div>
               </CardHeader>
               <CardContent>
+                {score && status === 'submitted' && (
+                  <div className="mb-6 p-4 bg-primary/10 border border-primary/20 rounded-lg text-center">
+                    <h3 className="text-2xl font-bold text-primary">Quiz Complete!</h3>
+                    <p className="text-lg mt-2">You scored <span className="font-bold">{score.correct}</span> out of <span className="font-bold">{score.total}</span>.</p>
+                    <p className="text-4xl font-bold mt-2">{((score.correct / score.total) * 100).toFixed(0)}%</p>
+                  </div>
+                )}
                 <Accordion type="multiple" defaultValue={['fill-in-the-blank', 'multiple-choice', 'true-false']} className="w-full">
                   <QuestionList title="Fill-in-the-Blank" data={questions.fillInTheBlank} />
                   <QuestionList title="Multiple Choice" data={questions.multipleChoice} />
                   <QuestionList title="True/False" data={questions.trueFalse} />
                 </Accordion>
               </CardContent>
+              <CardFooter>
+                {status !== 'submitted' && (
+                  <Button onClick={gradeQuiz} className="w-full" size="lg">
+                    <GraduationCap className="mr-2 h-5 w-5" />
+                    Grade My Quiz
+                  </Button>
+                )}
+              </CardFooter>
             </Card>
           )}
           
           {/* Idle/Initial State */}
-          {(status === 'idle' || status === 'parsed') && totalQuestions === 0 && (
+          {(status === 'idle' || (status === 'parsed' && totalQuestions === 0)) && (
              <div className="flex flex-col items-center justify-center text-center p-12 border-2 border-dashed rounded-lg h-full">
                 <div className="p-4 bg-primary/10 rounded-full mb-4">
                     <Sparkles className="w-10 h-10 text-primary"/>
@@ -756,3 +873,5 @@ export function QuizCreator() {
     </div>
   );
 }
+
+    
