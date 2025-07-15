@@ -577,18 +577,18 @@ export function QuizCreator() {
     }
 
     if (q.type === 'fib') {
-      const parts = q.question.split('____');
       return (
-        <div className="flex items-center flex-wrap gap-2">
-          {parts[0]}
+        <div className="space-y-2">
+          <Label htmlFor={q.id}>{q.question.replace("____", "...")}</Label>
           <Input
+            id={q.id}
             type="text"
-            value={userAnswers[q.id] || ''}
+            value={userAnswers[q.id] || ""}
             onChange={(e) => handleAnswerChange(q.id, e.target.value)}
             disabled={isGraded}
-            className={cn("w-48", isGraded && (isCorrect ? 'border-green-500' : 'border-red-500'))}
+            className={cn("w-full md:w-1/2", isGraded && (isCorrect ? 'border-green-500' : 'border-red-500'))}
+            placeholder="Your answer"
           />
-          {parts[1]}
         </div>
       );
     }
