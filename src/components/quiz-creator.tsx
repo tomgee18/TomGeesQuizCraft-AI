@@ -116,6 +116,11 @@ const ACCEPTED_FILE_TYPES = {
 };
 const ALL_ACCEPTED_TYPES = Object.values(ACCEPTED_FILE_TYPES).flat().join(',');
 
+// Counter to ensure unique IDs for questions
+let questionIdCounter = 0;
+const getUniqueQuestionId = (type: string) => `${type}-${Date.now()}-${questionIdCounter++}`;
+
+
 /**
  * The main component for the Quiz Creator application.
  * It manages state for API key, file uploads, question generation, and UI interaction.
@@ -357,7 +362,7 @@ export function QuizCreator() {
    */
   const parseAIResponse = (response: GenerateQuestionsOutput, context: string): QuestionState => {
     const parse = (raw: string[], type: Question['type']): Question[] => 
-      raw.map((q, i) => {
+      raw.map((q) => {
         const [questionText, ...answerParts] = q.split('Answer:');
         const answer = answerParts.join('Answer:').trim();
         let options;
@@ -372,7 +377,7 @@ export function QuizCreator() {
                 options = opts.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean);
             }
         }
-        return { id: `${type}-${Date.now()}-${i}`, type, question: finalQuestion, answer, options, context };
+        return { id: getUniqueQuestionId(type), type, question: finalQuestion, answer, options, context };
       }).filter(q => q.question && q.answer); // Filter out any malformed questions
 
     return {
@@ -873,5 +878,3 @@ export function QuizCreator() {
     </div>
   );
 }
-
-    
