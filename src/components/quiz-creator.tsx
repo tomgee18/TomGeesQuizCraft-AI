@@ -92,6 +92,7 @@ const initialQuestions: QuestionState = {
 export function QuizCreator() {
   const { toast } = useToast();
   const [apiKey, setApiKey] = React.useState<string>("");
+  const [hasMounted, setHasMounted] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
   const [isDragging, setIsDragging] = React.useState<boolean>(false);
   const [status, setStatus] = React.useState<string>("idle");
@@ -103,6 +104,7 @@ export function QuizCreator() {
   const [regeneratingId, setRegeneratingId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    setHasMounted(true);
     const storedApiKey = localStorage.getItem("gemini-api-key");
     if (storedApiKey) {
       setApiKey(storedApiKey);
@@ -441,6 +443,10 @@ export function QuizCreator() {
       </AccordionContent>
     </AccordionItem>
   );
+
+  if (!hasMounted) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
