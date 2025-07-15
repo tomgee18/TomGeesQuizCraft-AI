@@ -58,38 +58,53 @@ import { cn } from "@/lib/utils";
 import { jsPDF } from "jspdf";
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from "docx";
 import { saveAs } from "file-saver";
-import { convert } from 'html-to-text';
 import { ThemeToggle } from "./theme-toggle";
 
+// Set the worker source for pdf.js
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
+/**
+ * Interface representing a single generated question.
+ */
 interface Question {
-  id: string;
-  type: "fib" | "mcq" | "tf";
-  question: string;
-  options?: string[];
-  answer: string;
-  context: string;
+  id: string; // Unique identifier for the question
+  type: "fib" | "mcq" | "tf"; // Type of question: Fill-in-the-Blank, Multiple Choice, True/False
+  question: string; // The question text itself
+  options?: string[]; // Optional array of choices for MCQ
+  answer: string; // The correct answer
+  context: string; // The text chunk from which the question was generated
 }
 
+/**
+ * Type defining the number of questions to generate for each type.
+ */
 type QuestionCounts = {
-  fib: number;
-  mcq: number;
-  tf: number;
+  fib: number; // Fill-in-the-Blank count
+  mcq: number; // Multiple Choice count
+  tf: number; // True/False count
 };
 
+/**
+ * Type defining the state shape for storing generated questions, categorized by type.
+ */
 type QuestionState = {
   fillInTheBlank: Question[];
   multipleChoice: Question[];
   trueFalse: Question[];
 };
 
+/**
+ * Initial state for the questions, starting with empty arrays.
+ */
 const initialQuestions: QuestionState = {
   fillInTheBlank: [],
   multipleChoice: [],
   trueFalse: [],
 };
 
+/**
+ * Defines the accepted file types for upload.
+ */
 const ACCEPTED_FILE_TYPES = {
   'application/pdf': ['.pdf'],
   'text/plain': ['.txt'],
@@ -98,20 +113,25 @@ const ACCEPTED_FILE_TYPES = {
 };
 const ALL_ACCEPTED_TYPES = Object.values(ACCEPTED_FILE_TYPES).flat().join(',');
 
+/**
+ * The main component for the Quiz Creator application.
+ * It manages state for API key, file uploads, question generation, and UI interaction.
+ */
 export function QuizCreator() {
   const { toast } = useToast();
   const [apiKey, setApiKey] = React.useState<string>("");
-  const [hasMounted, setHasMounted] = React.useState(false);
+  const [hasMounted, setHasMounted] = React.useState(false); // Prevents SSR hydration errors
   const [file, setFile] = React.useState<File | null>(null);
   const [isDragging, setIsDragging] = React.useState<boolean>(false);
-  const [status, setStatus] = React.useState<string>("idle");
+  const [status, setStatus] = React.useState<string>("idle"); // Tracks the app's current state (e.g., 'parsing', 'generating')
   const [progress, setProgress] = React.useState<number>(0);
   const [documentChunks, setDocumentChunks] = React.useState<string[]>([]);
   const [questions, setQuestions] = React.useState<QuestionState>(initialQuestions);
   const [questionCounts, setQuestionCounts] = React.useState<QuestionCounts>({ fib: 3, mcq: 3, tf: 3 });
-  const [openAnswers, setOpenAnswers] = React.useState<Set<string>>(new Set());
-  const [regeneratingId, setRegeneratingId] = React.useState<string | null>(null);
+  const [openAnswers, setOpenAnswers] = React.useState<Set<string>>(new Set()); // Tracks which answers are currently visible
+  const [regeneratingId, setRegeneratingId] = React.useState<string | null>(null); // Tracks which question is being regenerated
 
+  // Effect to run on component mount to avoid hydration errors with localStorage.
   React.useEffect(() => {
     setHasMounted(true);
     const storedApiKey = localStorage.getItem("gemini-api-key");
@@ -120,18 +140,28 @@ export function QuizCreator() {
     }
   }, []);
 
+  /**
+   * Handles changes to the API key input and saves the key to localStorage.
+   */
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const key = e.target.value;
     setApiKey(key);
     localStorage.setItem("gemini-api-key", key);
   };
 
+  /**
+   * Handles file selection from the file input.
+   */
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       handleFile(e.target.files[0]);
     }
   };
 
+  /**
+   * Validates and sets the selected file.
+   * @param selectedFile The file selected by the user.
+   */
   const handleFile = (selectedFile: File) => {
     const isAccepted = Object.keys(ACCEPTED_FILE_TYPES).includes(selectedFile.type);
     if (!isAccepted || selectedFile.size > 10 * 1024 * 1024) {
@@ -143,21 +173,30 @@ export function QuizCreator() {
       return;
     }
     setFile(selectedFile);
-    setQuestions(initialQuestions);
+    setQuestions(initialQuestions); // Reset questions when a new file is uploaded
     setDocumentChunks([]);
     setStatus("idle");
   };
 
+  /**
+   * Handles the drag enter event for the file drop zone.
+   */
   const handleDragEnter = (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     setIsDragging(true);
   };
 
+  /**
+   * Handles the drag leave event for the file drop zone.
+   */
   const handleDragLeave = (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     setIsDragging(false);
   };
 
+  /**
+   * Handles the drop event for the file drop zone.
+   */
   const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     setIsDragging(false);
@@ -167,6 +206,9 @@ export function QuizCreator() {
     }
   };
 
+  /**
+   * Parses the uploaded document, extracts text, and chunks it for the AI model.
+   */
   const parseDocument = async () => {
     if (!file) return;
 
@@ -179,6 +221,7 @@ export function QuizCreator() {
       let fullText = "";
       const reader = new FileReader();
 
+      // Handle PDF files
       if (file.type === 'application/pdf') {
         reader.readAsArrayBuffer(file);
         await new Promise<void>((resolve) => (reader.onload = () => resolve()));
@@ -189,19 +232,22 @@ export function QuizCreator() {
           fullText += textContent.items.map((item) => ('str' in item ? item.str : '')).join(" ");
           setProgress((i / pdf.numPages) * 100);
         }
+      // Handle DOCX files
       } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         reader.readAsArrayBuffer(file);
         await new Promise<void>((resolve) => (reader.onload = () => resolve()));
         const result = await mammoth.extractRawText({ arrayBuffer: reader.result as ArrayBuffer });
         fullText = result.value;
         setProgress(100);
-      } else { // Handles text/plain and text/markdown
+      // Handle TXT and MD files
+      } else { 
         reader.readAsText(file);
         await new Promise<void>((resolve) => (reader.onload = () => resolve()));
         fullText = reader.result as string;
         setProgress(100);
       }
       
+      // Chunk the extracted text
       const chunks = await intelligentlyChunkDocument({ documentContent: fullText });
       setDocumentChunks(chunks);
       setStatus("parsed");
@@ -213,6 +259,9 @@ export function QuizCreator() {
   };
 
 
+  /**
+   * Handles the question generation process by calling the AI flow for each document chunk.
+   */
   const handleGenerateQuestions = async () => {
     if (!documentChunks.length) {
       toast({ variant: "destructive", title: "No document", description: "Please upload and parse a document first." });
@@ -232,9 +281,7 @@ export function QuizCreator() {
       let allGeneratedQuestions: QuestionState = { fillInTheBlank: [], multipleChoice: [], trueFalse: [] };
       
       const totalChunks = documentChunks.length;
-      // Distribute question generation across chunks
-      const totalQuestionsToGenerate = questionCounts.fib + questionCounts.mcq + questionCounts.tf;
-
+      // Distribute question generation across chunks to meet the desired total counts.
       const baseFib = Math.floor(questionCounts.fib / totalChunks);
       const remFib = questionCounts.fib % totalChunks;
       const baseMcq = Math.floor(questionCounts.mcq / totalChunks);
@@ -244,14 +291,16 @@ export function QuizCreator() {
       
       let generatedCounts = { fib: 0, mcq: 0, tf: 0 };
 
+      // Process each chunk to generate questions.
       for (let i = 0; i < totalChunks; i++) {
         const chunk = documentChunks[i];
         
+        // Determine how many questions of each type to generate from this chunk.
         let numFib = baseFib + (i < remFib ? 1 : 0);
         let numMcq = baseMcq + (i < remMcq ? 1 : 0);
         let numTf = baseTf + (i < remTf ? 1 : 0);
 
-        // Ensure we don't exceed the total requested counts
+        // Ensure we don't generate more questions than requested.
         numFib = Math.min(numFib, questionCounts.fib - generatedCounts.fib);
         numMcq = Math.min(numMcq, questionCounts.mcq - generatedCounts.mcq);
         numTf = Math.min(numTf, questionCounts.tf - generatedCounts.tf);
@@ -269,6 +318,7 @@ export function QuizCreator() {
             allGeneratedQuestions.multipleChoice.push(...parsed.multipleChoice);
             allGeneratedQuestions.trueFalse.push(...parsed.trueFalse);
             
+            // Update counts of generated questions.
             generatedCounts.fib += parsed.fillInTheBlank.length;
             generatedCounts.mcq += parsed.multipleChoice.length;
             generatedCounts.tf += parsed.trueFalse.length;
@@ -286,6 +336,12 @@ export function QuizCreator() {
     }
   };
   
+  /**
+   * Parses the raw response from the AI model into a structured QuestionState object.
+   * @param response The raw output from the generateQuestions flow.
+   * @param context The text chunk used for generation.
+   * @returns A structured QuestionState object.
+   */
   const parseAIResponse = (response: GenerateQuestionsOutput, context: string): QuestionState => {
     const parse = (raw: string[], type: Question['type']): Question[] => 
       raw.map((q, i) => {
@@ -293,6 +349,7 @@ export function QuizCreator() {
         const answer = answerParts.join('Answer:').trim();
         let options;
 
+        // Special parsing for multiple-choice questions to extract options.
         if (type === 'mcq') {
             const mcqParts = questionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
             if(mcqParts) {
@@ -302,7 +359,7 @@ export function QuizCreator() {
             }
         }
         return { id: `${type}-${Date.now()}-${i}`, type, question: questionText.trim(), answer, context };
-      }).filter(q => q.question && q.answer);
+      }).filter(q => q.question && q.answer); // Filter out any malformed questions
 
     return {
       fillInTheBlank: parse(response.fillInTheBlank, 'fib'),
@@ -311,6 +368,10 @@ export function QuizCreator() {
     };
   };
 
+  /**
+   * Handles the regeneration of a single question.
+   * @param question The question object to regenerate.
+   */
   const handleRegenerate = async (question: Question) => {
     setRegeneratingId(question.id);
     try {
@@ -321,11 +382,13 @@ export function QuizCreator() {
         context: question.context,
       });
 
+      // Parse the regenerated question and answer.
       const [newQuestionText, ...answerParts] = response.regeneratedQuestion.split('Answer:');
       const newAnswer = answerParts.join('Answer:').trim();
 
       const updatedQuestion = { ...question, question: newQuestionText.trim(), answer: newAnswer };
       
+      // If it's an MCQ, re-parse the options.
       if (question.type === 'mcq' && newQuestionText) {
           const mcqParts = newQuestionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
           if (mcqParts) {
@@ -335,6 +398,7 @@ export function QuizCreator() {
           }
       }
 
+      // Update the state with the new question.
       setQuestions(prev => {
         const newQuestions = { ...prev };
         const keyMap = { fib: 'fillInTheBlank', mcq: 'multipleChoice', tf: 'trueFalse' };
@@ -351,6 +415,10 @@ export function QuizCreator() {
     }
   };
 
+  /**
+   * Toggles the visibility of a question's answer.
+   * @param id The ID of the question to toggle.
+   */
   const toggleAnswer = (id: string) => {
     setOpenAnswers(prev => {
       const newSet = new Set(prev);
@@ -365,13 +433,19 @@ export function QuizCreator() {
 
   const totalQuestions = questions.fillInTheBlank.length + questions.multipleChoice.length + questions.trueFalse.length;
 
+  /**
+   * Exports the generated questions to a specified file format.
+   * @param format The desired file format ('txt', 'pdf', 'docx', 'json', 'md').
+   */
   const exportToFile = (format: 'txt' | 'pdf' | 'docx' | 'json' | 'md') => {
+    // Helper to format a single question with its options if it's an MCQ.
     const questionText = (q: Question) => {
         if(q.type === 'mcq' && q.options) {
             return `${q.question}\n${q.options.join('\n')}`;
         }
         return q.question;
     }
+    // Helper to generate the full text content of the quiz.
     const fullText = (showAnswers: boolean) => 
         ['Fill-in-the-Blank', 'Multiple Choice', 'True/False'].map(type => {
             const qList = type === 'Fill-in-the-Blank' ? questions.fillInTheBlank : type === 'Multiple Choice' ? questions.multipleChoice : questions.trueFalse;
@@ -381,6 +455,7 @@ export function QuizCreator() {
             ).join('\n\n') + '\n\n';
         }).join('');
     
+    // Handle different export formats.
     if (format === 'txt') {
         const blob = new Blob([fullText(true)], { type: 'text/plain;charset=utf-8' });
         saveAs(blob, 'quizcraft-questions.txt');
@@ -443,6 +518,9 @@ export function QuizCreator() {
     }
   };
 
+  /**
+   * A sub-component to render a list of questions for a specific category.
+   */
   const QuestionList = ({ title, data }: { title: string; data: Question[] }) => (
     <AccordionItem value={title.toLowerCase().replace(" ", "-")} disabled={!data.length}>
       <AccordionTrigger className="text-lg font-medium hover:no-underline">
@@ -499,6 +577,7 @@ export function QuizCreator() {
     </AccordionItem>
   );
 
+  // Return null on initial server render to prevent hydration mismatch.
   if (!hasMounted) {
     return null;
   }
@@ -519,7 +598,9 @@ export function QuizCreator() {
       </header>
 
       <main className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 p-8 items-start">
+        {/* Left Column: Controls */}
         <div className="lg:col-span-1 space-y-6 sticky top-8">
+          {/* API Key Input */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><KeyRound className="text-primary"/> Gemini API Key</CardTitle>
@@ -530,6 +611,7 @@ export function QuizCreator() {
             </CardContent>
           </Card>
           
+          {/* Document Upload */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><UploadCloud className="text-primary"/> Upload Document</CardTitle>
@@ -566,6 +648,7 @@ export function QuizCreator() {
             )}
           </Card>
 
+          {/* Generation Settings */}
           {status === "parsed" && documentChunks.length > 0 && (
             <Card className="animate-in fade-in">
               <CardHeader>
@@ -596,7 +679,9 @@ export function QuizCreator() {
           )}
         </div>
 
+        {/* Right Column: Output */}
         <div className="md:col-span-1 lg:col-span-2">
+          {/* Parsing State */}
           {status === 'parsing' && (
             <Card>
               <CardHeader><CardTitle>Parsing Your Document...</CardTitle></CardHeader>
@@ -608,6 +693,7 @@ export function QuizCreator() {
             </Card>
           )}
 
+          {/* Generating State */}
           {status === 'generating' && (
             <Card>
               <CardHeader><CardTitle>Generating Your Quiz...</CardTitle></CardHeader>
@@ -621,6 +707,7 @@ export function QuizCreator() {
             </Card>
           )}
 
+          {/* Complete State */}
           {totalQuestions > 0 && status === 'complete' && (
             <Card className="animate-in fade-in">
               <CardHeader>
@@ -629,6 +716,7 @@ export function QuizCreator() {
                     <CardTitle>Generated Questions</CardTitle>
                     <CardDescription>{totalQuestions} questions generated from your document.</CardDescription>
                   </div>
+                  {/* Export Buttons */}
                   <div className="flex gap-2">
                       <TooltipProvider>
                           <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => exportToFile('txt')}><FileText className="h-4 w-4"/></Button></TooltipTrigger><TooltipContent>Export as .txt</TooltipContent></Tooltip>
@@ -650,6 +738,7 @@ export function QuizCreator() {
             </Card>
           )}
           
+          {/* Idle/Initial State */}
           {(status === 'idle' || status === 'parsed') && totalQuestions === 0 && (
              <div className="flex flex-col items-center justify-center text-center p-12 border-2 border-dashed rounded-lg h-full">
                 <div className="p-4 bg-primary/10 rounded-full mb-4">

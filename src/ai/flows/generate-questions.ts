@@ -11,6 +11,9 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
+/**
+ * Defines the schema for the input of the question generation flow.
+ */
 const GenerateQuestionsInputSchema = z.object({
   text: z.string().describe('The text from which to generate questions.'),
   numFillInTheBlank: z.number().int().min(0).describe('The number of fill-in-the-blank questions to generate.'),
@@ -19,8 +22,14 @@ const GenerateQuestionsInputSchema = z.object({
 });
 export type GenerateQuestionsInput = z.infer<typeof GenerateQuestionsInputSchema>;
 
+/**
+ * Defines the schema for a single question, ensuring it includes an answer.
+ */
 const QuestionSchema = z.string().describe(`A question string that MUST include the answer prefixed with "Answer:". For example: "The capital of France is ____. Answer: Paris" or "Is the sky blue? Answer: True"`);
 
+/**
+ * Defines the schema for the output of the question generation flow.
+ */
 const GenerateQuestionsOutputSchema = z.object({
   fillInTheBlank: z.array(QuestionSchema).describe('An array of fill-in-the-blank questions.'),
   multipleChoice: z.array(QuestionSchema).describe('An array of multiple-choice questions. For each question, provide four options (A, B, C, D).'),
@@ -28,8 +37,13 @@ const GenerateQuestionsOutputSchema = z.object({
 });
 export type GenerateQuestionsOutput = z.infer<typeof GenerateQuestionsOutputSchema>;
 
+/**
+ * A wrapper function that calls the Genkit flow to generate questions.
+ * @param input The input data for question generation.
+ * @returns A promise that resolves to the generated questions.
+ */
 export async function generateQuestions(input: GenerateQuestionsInput): Promise<GenerateQuestionsOutput> {
-  // If no questions are requested, return an empty response.
+  // If no questions are requested, return an empty response to avoid unnecessary API calls.
   if (input.numFillInTheBlank === 0 && input.numMultipleChoice === 0 && input.numTrueFalse === 0) {
     return {
       fillInTheBlank: [],
@@ -40,6 +54,9 @@ export async function generateQuestions(input: GenerateQuestionsInput): Promise<
   return generateQuestionsFlow(input);
 }
 
+/**
+ * The Genkit prompt that instructs the AI model on how to generate questions.
+ */
 const generateQuestionsPrompt = ai.definePrompt({
   name: 'generateQuestionsPrompt',
   input: {schema: GenerateQuestionsInputSchema},
@@ -70,6 +87,9 @@ Example for a true/false question:
 `,
 });
 
+/**
+ * The Genkit flow that orchestrates the question generation process.
+ */
 const generateQuestionsFlow = ai.defineFlow(
   {
     name: 'generateQuestionsFlow',

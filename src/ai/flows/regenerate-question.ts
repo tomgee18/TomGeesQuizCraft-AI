@@ -11,6 +11,9 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
+/**
+ * Defines the schema for the input of the question regeneration flow.
+ */
 const RegenerateQuestionInputSchema = z.object({
   questionType: z.enum(['Fill-in-the-Blank', 'MCQ', 'True/False']),
   originalQuestion: z.string().describe('The original question to be regenerated.'),
@@ -18,15 +21,26 @@ const RegenerateQuestionInputSchema = z.object({
 });
 export type RegenerateQuestionInput = z.infer<typeof RegenerateQuestionInputSchema>;
 
+/**
+ * Defines the schema for the output of the question regeneration flow.
+ */
 const RegenerateQuestionOutputSchema = z.object({
   regeneratedQuestion: z.string().describe('The regenerated question, which MUST include the answer prefixed with "Answer:".'),
 });
 export type RegenerateQuestionOutput = z.infer<typeof RegenerateQuestionOutputSchema>;
 
+/**
+ * A wrapper function that calls the Genkit flow to regenerate a question.
+ * @param input The input data for question regeneration.
+ * @returns A promise that resolves to the regenerated question.
+ */
 export async function regenerateQuestion(input: RegenerateQuestionInput): Promise<RegenerateQuestionOutput> {
   return regenerateQuestionFlow(input);
 }
 
+/**
+ * The Genkit prompt that instructs the AI model on how to regenerate a question.
+ */
 const regenerateQuestionPrompt = ai.definePrompt({
   name: 'regenerateQuestionPrompt',
   input: {schema: RegenerateQuestionInputSchema},
@@ -43,6 +57,9 @@ Context: {{{context}}}
 `,
 });
 
+/**
+ * The Genkit flow that orchestrates the question regeneration process.
+ */
 const regenerateQuestionFlow = ai.defineFlow(
   {
     name: 'regenerateQuestionFlow',
