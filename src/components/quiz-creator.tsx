@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as pdfjs from "pdfjs-dist";
+import * as mammoth from "mammoth";
 import {
   generateQuestions,
   GenerateQuestionsOutput,
@@ -89,6 +90,14 @@ const initialQuestions: QuestionState = {
   trueFalse: [],
 };
 
+const ACCEPTED_FILE_TYPES = {
+  'application/pdf': ['.pdf'],
+  'text/plain': ['.txt'],
+  'text/markdown': ['.md'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+};
+const ALL_ACCEPTED_TYPES = Object.values(ACCEPTED_FILE_TYPES).flat().join(',');
+
 export function QuizCreator() {
   const { toast } = useToast();
   const [apiKey, setApiKey] = React.useState<string>("");
@@ -124,16 +133,19 @@ export function QuizCreator() {
   };
 
   const handleFile = (selectedFile: File) => {
-    if (selectedFile.type !== "application/pdf" || selectedFile.size > 10 * 1024 * 1024) {
+    const isAccepted = Object.keys(ACCEPTED_FILE_TYPES).includes(selectedFile.type);
+    if (!isAccepted || selectedFile.size > 10 * 1024 * 1024) {
       toast({
         variant: "destructive",
         title: "Invalid File",
-        description: "Please upload a PDF file smaller than 10MB.",
+        description: "Please upload a supported file type (PDF, TXT, MD, DOCX) smaller than 10MB.",
       });
       return;
     }
     setFile(selectedFile);
     setQuestions(initialQuestions);
+    setDocumentChunks([]);
+    setStatus("idle");
   };
 
   const handleDragEnter = (e: React.DragEvent<HTMLLabelElement>) => {
@@ -155,40 +167,55 @@ export function QuizCreator() {
     }
   };
 
-  const parsePdf = async () => {
+  const parseDocument = async () => {
     if (!file) return;
 
     setStatus("parsing");
     setProgress(0);
     setQuestions(initialQuestions);
+    setDocumentChunks([]);
 
     try {
-      const reader = new FileReader();
-      reader.readAsArrayBuffer(file);
-      await new Promise<void>((resolve) => (reader.onload = () => resolve()));
-      
-      const pdf = await pdfjs.getDocument(reader.result as ArrayBuffer).promise;
       let fullText = "";
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        fullText += textContent.items.map((item) => ('str' in item ? item.str : '')).join(" ");
-        setProgress((i / pdf.numPages) * 100);
+      const reader = new FileReader();
+
+      if (file.type === 'application/pdf') {
+        reader.readAsArrayBuffer(file);
+        await new Promise<void>((resolve) => (reader.onload = () => resolve()));
+        const pdf = await pdfjs.getDocument(reader.result as ArrayBuffer).promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          fullText += textContent.items.map((item) => ('str' in item ? item.str : '')).join(" ");
+          setProgress((i / pdf.numPages) * 100);
+        }
+      } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        reader.readAsArrayBuffer(file);
+        await new Promise<void>((resolve) => (reader.onload = () => resolve()));
+        const result = await mammoth.extractRawText({ arrayBuffer: reader.result as ArrayBuffer });
+        fullText = result.value;
+        setProgress(100);
+      } else { // Handles text/plain and text/markdown
+        reader.readAsText(file);
+        await new Promise<void>((resolve) => (reader.onload = () => resolve()));
+        fullText = reader.result as string;
+        setProgress(100);
       }
       
       const chunks = await intelligentlyChunkDocument({ documentContent: fullText });
       setDocumentChunks(chunks);
       setStatus("parsed");
     } catch (error) {
-      console.error("Error parsing PDF:", error);
-      toast({ variant: "destructive", title: "PDF Parsing Error", description: "Could not extract text from the PDF." });
+      console.error("Error parsing document:", error);
+      toast({ variant: "destructive", title: "Document Parsing Error", description: "Could not extract text from the document." });
       setStatus("idle");
     }
   };
 
+
   const handleGenerateQuestions = async () => {
     if (!documentChunks.length) {
-      toast({ variant: "destructive", title: "No document", description: "Please upload and parse a PDF first." });
+      toast({ variant: "destructive", title: "No document", description: "Please upload and parse a document first." });
       return;
     }
     if (!apiKey) {
@@ -204,21 +231,50 @@ export function QuizCreator() {
     try {
       let allGeneratedQuestions: QuestionState = { fillInTheBlank: [], multipleChoice: [], trueFalse: [] };
       
-      for (let i = 0; i < documentChunks.length; i++) {
-        const chunk = documentChunks[i];
-        const res = await generateQuestions({
-          text: chunk,
-          numFillInTheBlank: questionCounts.fib,
-          numMultipleChoice: questionCounts.mcq,
-          numTrueFalse: questionCounts.tf,
-        });
+      const totalChunks = documentChunks.length;
+      // Distribute question generation across chunks
+      const totalQuestionsToGenerate = questionCounts.fib + questionCounts.mcq + questionCounts.tf;
 
-        const parsed = parseAIResponse(res, chunk);
-        allGeneratedQuestions.fillInTheBlank.push(...parsed.fillInTheBlank);
-        allGeneratedQuestions.multipleChoice.push(...parsed.multipleChoice);
-        allGeneratedQuestions.trueFalse.push(...parsed.trueFalse);
+      const baseFib = Math.floor(questionCounts.fib / totalChunks);
+      const remFib = questionCounts.fib % totalChunks;
+      const baseMcq = Math.floor(questionCounts.mcq / totalChunks);
+      const remMcq = questionCounts.mcq % totalChunks;
+      const baseTf = Math.floor(questionCounts.tf / totalChunks);
+      const remTf = questionCounts.tf % totalChunks;
+      
+      let generatedCounts = { fib: 0, mcq: 0, tf: 0 };
+
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = documentChunks[i];
         
-        setProgress(((i + 1) / documentChunks.length) * 100);
+        let numFib = baseFib + (i < remFib ? 1 : 0);
+        let numMcq = baseMcq + (i < remMcq ? 1 : 0);
+        let numTf = baseTf + (i < remTf ? 1 : 0);
+
+        // Ensure we don't exceed the total requested counts
+        numFib = Math.min(numFib, questionCounts.fib - generatedCounts.fib);
+        numMcq = Math.min(numMcq, questionCounts.mcq - generatedCounts.mcq);
+        numTf = Math.min(numTf, questionCounts.tf - generatedCounts.tf);
+        
+        if (numFib > 0 || numMcq > 0 || numTf > 0) {
+            const res = await generateQuestions({
+              text: chunk,
+              numFillInTheBlank: numFib,
+              numMultipleChoice: numMcq,
+              numTrueFalse: numTf,
+            });
+    
+            const parsed = parseAIResponse(res, chunk);
+            allGeneratedQuestions.fillInTheBlank.push(...parsed.fillInTheBlank);
+            allGeneratedQuestions.multipleChoice.push(...parsed.multipleChoice);
+            allGeneratedQuestions.trueFalse.push(...parsed.trueFalse);
+            
+            generatedCounts.fib += parsed.fillInTheBlank.length;
+            generatedCounts.mcq += parsed.multipleChoice.length;
+            generatedCounts.tf += parsed.trueFalse.length;
+        }
+
+        setProgress(((i + 1) / totalChunks) * 100);
       }
       
       setQuestions(allGeneratedQuestions);
@@ -282,9 +338,8 @@ export function QuizCreator() {
       setQuestions(prev => {
         const newQuestions = { ...prev };
         const keyMap = { fib: 'fillInTheBlank', mcq: 'multipleChoice', tf: 'trueFalse' };
-        const qKey = keyMap[question.type];
         // @ts-ignore
-        newQuestions[qKey] = newQuestions[qKey].map(q => q.id === question.id ? updatedQuestion : q);
+        newQuestions[keyMap[question.type]] = newQuestions[keyMap[question.type]].map(q => q.id === question.id ? updatedQuestion : q);
         return newQuestions;
       });
 
@@ -477,8 +532,8 @@ export function QuizCreator() {
           
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><UploadCloud className="text-primary"/> Upload PDF</CardTitle>
-              <CardDescription>Drag & drop or select a PDF file (max 10MB).</CardDescription>
+              <CardTitle className="flex items-center gap-2"><UploadCloud className="text-primary"/> Upload Document</CardTitle>
+              <CardDescription>Drag & drop or select a file (max 10MB).</CardDescription>
             </CardHeader>
             <CardContent>
               <label 
@@ -487,9 +542,9 @@ export function QuizCreator() {
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <UploadCloud className="w-8 h-8 mb-2 text-muted-foreground" />
                   <p className="mb-1 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                  <p className="text-xs text-muted-foreground">PDF (MAX. 10MB)</p>
+                  <p className="text-xs text-muted-foreground">PDF, DOCX, TXT, MD (MAX. 10MB)</p>
                 </div>
-                <input type="file" className="hidden" accept=".pdf" onChange={handleFileChange} />
+                <input type="file" className="hidden" accept={ALL_ACCEPTED_TYPES} onChange={handleFileChange} />
               </label>
               {file && (
                 <div className="mt-4 flex items-center justify-between bg-muted/50 p-2 rounded-md">
@@ -503,9 +558,9 @@ export function QuizCreator() {
             </CardContent>
             {file && (
               <CardFooter>
-                <Button onClick={parsePdf} disabled={status === "parsing" || status === "generating"} className="w-full">
+                <Button onClick={parseDocument} disabled={status === "parsing" || status === "generating"} className="w-full">
                   {status === 'parsing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {status === 'parsing' ? 'Parsing PDF...' : documentChunks.length > 0 ? 'Reparse PDF' : 'Parse PDF'}
+                  {status === 'parsing' ? 'Parsing Document...' : documentChunks.length > 0 ? 'Reparse Document' : 'Parse Document'}
                 </Button>
               </CardFooter>
             )}
@@ -515,20 +570,20 @@ export function QuizCreator() {
             <Card className="animate-in fade-in">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Sparkles className="text-primary"/> Generation Settings</CardTitle>
-                <CardDescription>Set how many questions of each type to generate per document chunk.</CardDescription>
+                <CardDescription>Set how many questions of each type to generate.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label>Fill-in-the-Blank: {questionCounts.fib}</Label>
-                  <Slider value={[questionCounts.fib]} onValueChange={([val]) => setQuestionCounts(c => ({ ...c, fib: val }))} min={0} max={10} step={1} />
+                  <Slider value={[questionCounts.fib]} onValueChange={([val]) => setQuestionCounts(c => ({ ...c, fib: val }))} min={0} max={25} step={1} />
                 </div>
                 <div className="space-y-2">
                   <Label>Multiple Choice: {questionCounts.mcq}</Label>
-                  <Slider value={[questionCounts.mcq]} onValueChange={([val]) => setQuestionCounts(c => ({ ...c, mcq: val }))} min={0} max={10} step={1} />
+                  <Slider value={[questionCounts.mcq]} onValueChange={([val]) => setQuestionCounts(c => ({ ...c, mcq: val }))} min={0} max={25} step={1} />
                 </div>
                 <div className="space-y-2">
                   <Label>True/False: {questionCounts.tf}</Label>
-                  <Slider value={[questionCounts.tf]} onValueChange={([val]) => setQuestionCounts(c => ({ ...c, tf: val }))} min={0} max={10} step={1} />
+                  <Slider value={[questionCounts.tf]} onValueChange={([val]) => setQuestionCounts(c => ({ ...c, tf: val }))} min={0} max={25} step={1} />
                 </div>
               </CardContent>
               <CardFooter>
@@ -542,6 +597,17 @@ export function QuizCreator() {
         </div>
 
         <div className="md:col-span-1 lg:col-span-2">
+          {status === 'parsing' && (
+            <Card>
+              <CardHeader><CardTitle>Parsing Your Document...</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                  <Progress value={progress} className="w-full" />
+                  <p className="text-center text-muted-foreground">Extracting text... this may take a moment for large files.</p>
+                  <Skeleton className="h-24 w-full" />
+              </CardContent>
+            </Card>
+          )}
+
           {status === 'generating' && (
             <Card>
               <CardHeader><CardTitle>Generating Your Quiz...</CardTitle></CardHeader>
@@ -584,14 +650,14 @@ export function QuizCreator() {
             </Card>
           )}
           
-          {status !== 'generating' && totalQuestions === 0 && (
+          {(status === 'idle' || status === 'parsed') && totalQuestions === 0 && (
              <div className="flex flex-col items-center justify-center text-center p-12 border-2 border-dashed rounded-lg h-full">
                 <div className="p-4 bg-primary/10 rounded-full mb-4">
                     <Sparkles className="w-10 h-10 text-primary"/>
                 </div>
                 <h3 className="text-xl font-bold font-headline">Your Quiz Awaits</h3>
                 <p className="text-muted-foreground mt-2 max-w-md">
-                    Upload a PDF and provide your API key to start generating questions.
+                    Upload a document and provide your API key to start generating questions.
                     Your personalized quiz will appear here.
                 </p>
              </div>

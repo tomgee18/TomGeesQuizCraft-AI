@@ -19,14 +19,24 @@ const GenerateQuestionsInputSchema = z.object({
 });
 export type GenerateQuestionsInput = z.infer<typeof GenerateQuestionsInputSchema>;
 
+const QuestionSchema = z.string().describe(`A question string that MUST include the answer prefixed with "Answer:". For example: "The capital of France is ____. Answer: Paris" or "Is the sky blue? Answer: True"`);
+
 const GenerateQuestionsOutputSchema = z.object({
-  fillInTheBlank: z.array(z.string()).describe('An array of fill-in-the-blank questions.'),
-  multipleChoice: z.array(z.string()).describe('An array of multiple-choice questions.'),
-  trueFalse: z.array(z.string()).describe('An array of true/false questions.'),
+  fillInTheBlank: z.array(QuestionSchema).describe('An array of fill-in-the-blank questions.'),
+  multipleChoice: z.array(QuestionSchema).describe('An array of multiple-choice questions. For each question, provide four options (A, B, C, D).'),
+  trueFalse: z.array(QuestionSchema).describe('An array of true/false questions.'),
 });
 export type GenerateQuestionsOutput = z.infer<typeof GenerateQuestionsOutputSchema>;
 
 export async function generateQuestions(input: GenerateQuestionsInput): Promise<GenerateQuestionsOutput> {
+  // If no questions are requested, return an empty response.
+  if (input.numFillInTheBlank === 0 && input.numMultipleChoice === 0 && input.numTrueFalse === 0) {
+    return {
+      fillInTheBlank: [],
+      multipleChoice: [],
+      trueFalse: [],
+    };
+  }
   return generateQuestionsFlow(input);
 }
 
@@ -34,29 +44,29 @@ const generateQuestionsPrompt = ai.definePrompt({
   name: 'generateQuestionsPrompt',
   input: {schema: GenerateQuestionsInputSchema},
   output: {schema: GenerateQuestionsOutputSchema},
-  prompt: `You are an expert educator. Generate fill-in-the-blank, multiple choice, and true/false questions from the following text.
+  prompt: `You are an expert educator creating a quiz for undergraduate students based on the provided text.
+
+Generate the specified number of questions for each type. For each question, you MUST provide the answer immediately after the question, prefixed with "Answer:".
 
 Text: {{{text}}}
 
-Number of fill-in-the-blank questions to generate: {{{numFillInTheBlank}}}
-Number of multiple-choice questions to generate: {{{numMultipleChoice}}}
-Number of true/false questions to generate: {{{numTrueFalse}}}
+Number of fill-in-the-blank questions: {{{numFillInTheBlank}}}
+Number of multiple-choice questions: {{{numMultipleChoice}}}
+Number of true/false questions: {{{numTrueFalse}}}
 
-Format the questions as follows:
+Example for a fill-in-the-blank question:
+"The powerhouse of the cell is the ____. Answer: mitochondria"
 
-Fill-in-the-blank:
-1. [question 1]
-2. [question 2]
+Example for a multiple-choice question:
+"What is the capital of Japan?
+A. Beijing
+B. Seoul
+C. Tokyo
+D. Bangkok
+Answer: C. Tokyo"
 
-Multiple choice:
-1. [question 1]
-2. [question 2]
-
-True/False:
-1. [question 1]
-2. [question 2]
-
-Ensure the questions are relevant to the text and are of appropriate difficulty for undergraduate students.
+Example for a true/false question:
+"The Earth is flat. Answer: False"
 `,
 });
 

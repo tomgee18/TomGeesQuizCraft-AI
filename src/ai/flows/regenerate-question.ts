@@ -1,4 +1,3 @@
-// src/ai/flows/regenerate-question.ts
 'use server';
 
 /**
@@ -20,7 +19,7 @@ const RegenerateQuestionInputSchema = z.object({
 export type RegenerateQuestionInput = z.infer<typeof RegenerateQuestionInputSchema>;
 
 const RegenerateQuestionOutputSchema = z.object({
-  regeneratedQuestion: z.string().describe('The regenerated question.'),
+  regeneratedQuestion: z.string().describe('The regenerated question, which MUST include the answer prefixed with "Answer:".'),
 });
 export type RegenerateQuestionOutput = z.infer<typeof RegenerateQuestionOutputSchema>;
 
@@ -34,14 +33,14 @@ const regenerateQuestionPrompt = ai.definePrompt({
   output: {schema: RegenerateQuestionOutputSchema},
   prompt: `You are an expert in generating exam questions for undergraduate students.
 
-  You are given the original question, its type, and the context from the PDF document it was based on.
-  Your task is to regenerate the question so that it is more relevant and helpful, while maintaining the same question type.
+You are given an original question, its type, and the context it was based on. Your task is to generate a new, different question of the same type based on the same context.
 
-  Question Type: {{{questionType}}}
-  Original Question: {{{originalQuestion}}}
-  Context: {{{context}}}
+The new question MUST be relevant and helpful. Crucially, your response must include the answer prefixed with "Answer:".
 
-  Regenerated Question:`,
+Question Type: {{{questionType}}}
+Original Question: {{{originalQuestion}}}
+Context: {{{context}}}
+`,
 });
 
 const regenerateQuestionFlow = ai.defineFlow(
