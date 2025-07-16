@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "name": "Documentation Updater",
+  "description": "Monitors source code changes and prompts to update relevant documentation in README.md or docs folder",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "src/**/*.js",
+      "src/**/*.jsx",
+      "*.ts",
+      "*.js",
+      "*.config.ts",
+      "*.config.js",
+      "*.config.mjs"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "I noticed changes to source code files. Please review these changes and update the relevant documentation in either the README.md file or the appropriate files in the docs folder to ensure documentation stays in sync with the codebase. Consider what information would be helpful for users and developers to understand these changes."
+  }
+}
