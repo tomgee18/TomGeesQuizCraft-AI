@@ -14,7 +14,7 @@ QuizCraft AI is a web application that leverages the power of Google's Gemini AI
 - **💾 Multiple Export Formats**: Export your generated quiz to TXT, JSON, Markdown, PDF, or DOCX files.
 - **🔐 Secure API Key Handling**: Your Google Gemini API key is stored exclusively in your browser's local storage and is never sent to our servers.
 - **🎨 Light & Dark Mode**: A sleek interface with support for both light and dark themes.
-- ** responsive**: Fully responsive design that works on desktop and mobile devices.
+- **Responsive**: Fully responsive design that works on desktop and mobile devices.
 
 ## 🛠️ Tech Stack
 

@@ -121,10 +121,7 @@ let questionIdCounter = 0;
 const getUniqueQuestionId = (type: string) => `${type}-${Date.now()}-${questionIdCounter++}`;
 
 
-/**
- * The main component for the Quiz Creator application.
- * It manages state for API key, file uploads, question generation, and UI interaction.
- */
+// Main component for the Quiz Creator application. Manages state for API key, file uploads, question generation, and UI interaction.
 export function QuizCreator() {
   const { toast } = useToast();
   const [apiKey, setApiKey] = React.useState<string>("");
@@ -430,8 +427,7 @@ export function QuizCreator() {
       setQuestions(prev => {
         const newQuestions = { ...prev };
         const keyMap = { fib: 'fillInTheBlank', mcq: 'multipleChoice', tf: 'trueFalse' };
-        // @ts-ignore
-        newQuestions[keyMap[question.type]] = newQuestions[keyMap[question.type]].map(q => q.id === question.id ? updatedQuestion : q);
+        newQuestions[keyMap[question.type]] = newQuestions[keyMap[question.type]].map((q: Question) => q.id === question.id ? updatedQuestion : q);
         return newQuestions;
       });
 
@@ -456,16 +452,20 @@ export function QuizCreator() {
   const gradeQuiz = () => {
     let correctCount = 0;
     const allQuestions = [...questions.fillInTheBlank, ...questions.multipleChoice, ...questions.trueFalse];
-    
     allQuestions.forEach(q => {
       const userAnswer = userAnswers[q.id];
       if (userAnswer) {
-        // For MCQ, compare the option letter (e.g., "C.") with the answer
         if (q.type === 'mcq') {
-          if (userAnswer.trim().toLowerCase().startsWith(q.answer.trim().toLowerCase())) {
+          // Accept either the letter (e.g., "C"), the letter with dot ("C."), or the full option text
+          const normalizedUser = userAnswer.trim().toLowerCase();
+          const normalizedAnswer = q.answer.trim().toLowerCase();
+          if (
+            normalizedUser === normalizedAnswer ||
+            normalizedUser.replace('.', '') === normalizedAnswer.replace('.', '') ||
+            (q.options && q.options.some(opt => normalizedUser === opt.trim().toLowerCase()))
+          ) {
             correctCount++;
           }
-        // For other types, do a case-insensitive comparison
         } else if (userAnswer.trim().toLowerCase() === q.answer.trim().toLowerCase()) {
           correctCount++;
         }
