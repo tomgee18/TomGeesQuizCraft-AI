@@ -575,6 +575,7 @@ export function QuizCreator() {
             cursorY += 7;
         }
         doc.save('quizcraft-questions.pdf');
+
     } else if (format === 'docx') {
         const doc = new DocxDocument({
             sections: [{
