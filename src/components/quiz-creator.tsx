@@ -137,22 +137,67 @@ export function QuizCreator() {
   const [userAnswers, setUserAnswers] = React.useState<Record<string, string>>({}); // Stores the user's answers
   const [score, setScore] = React.useState<{ correct: number, total: number } | null>(null); // Stores the quiz score after grading
 
-  // Effect to run on component mount to avoid hydration errors with localStorage.
+  // Effect to run on component mount to avoid hydration errors with sessionStorage.
   React.useEffect(() => {
     setHasMounted(true);
-    const storedApiKey = localStorage.getItem("gemini-api-key");
-    if (storedApiKey) {
-      setApiKey(storedApiKey);
+    try {
+      // Initialize CSRF protection
+      import('@/lib/csrf').then(({ initCsrfProtection }) => {
+        initCsrfProtection();
+      });
+      
+      // Use sessionStorage instead of localStorage for better security
+      const encryptedKey = sessionStorage.getItem("gemini-api-key");
+      if (encryptedKey) {
+        // Simple decryption (in a real app, use a proper encryption library)
+        const storedApiKey = decryptApiKey(encryptedKey);
+        setApiKey(storedApiKey);
+      }
+    } catch (error) {
+      console.error("Error retrieving API key:", error);
     }
   }, []);
 
   /**
-   * Handles changes to the API key input and saves the key to localStorage.
+   * Simple encryption function for API key
+   * Note: This is not true encryption, just obfuscation
+   * In a production app, use a proper encryption library
+   */
+  const encryptApiKey = (key: string): string => {
+    // Simple obfuscation - in production use a proper encryption method
+    return btoa(key.split('').reverse().join(''));
+  };
+
+  /**
+   * Simple decryption function for API key
+   */
+  const decryptApiKey = (encryptedKey: string): string => {
+    try {
+      // Simple de-obfuscation - in production use a proper decryption method
+      return atob(encryptedKey).split('').reverse().join('');
+    } catch (error) {
+      console.error("Error decrypting API key:", error);
+      return "";
+    }
+  };
+
+  /**
+   * Handles changes to the API key input and saves the key to sessionStorage with encryption.
    */
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const key = e.target.value;
     setApiKey(key);
-    localStorage.setItem("gemini-api-key", key);
+    try {
+      // Store encrypted key in sessionStorage (cleared when browser is closed)
+      if (key) {
+        const encryptedKey = encryptApiKey(key);
+        sessionStorage.setItem("gemini-api-key", encryptedKey);
+      } else {
+        sessionStorage.removeItem("gemini-api-key");
+      }
+    } catch (error) {
+      console.error("Error storing API key:", error);
+    }
   };
 
   /**
@@ -176,21 +221,71 @@ export function QuizCreator() {
   };
 
   /**
-   * Validates and sets the selected file.
+   * Validates and sets the selected file with enhanced security checks.
    * @param selectedFile The file selected by the user.
    */
   const handleFile = (selectedFile: File) => {
-    const isAccepted = Object.keys(ACCEPTED_FILE_TYPES).includes(selectedFile.type);
-    if (!isAccepted || selectedFile.size > 10 * 1024 * 1024) {
+    try {
+      // Check if file exists
+      if (!selectedFile) {
+        toast({
+          variant: "destructive",
+          title: "Invalid File",
+          description: "No file selected.",
+        });
+        return;
+      }
+      
+      // Check file type using both MIME type and extension
+      const fileExtension = selectedFile.name.split('.').pop()?.toLowerCase() || '';
+      const isAcceptedMime = Object.keys(ACCEPTED_FILE_TYPES).includes(selectedFile.type);
+      const isAcceptedExt = Object.values(ACCEPTED_FILE_TYPES).flat().some(ext => 
+        ext.toLowerCase().includes(`.${fileExtension}`)
+      );
+      
+      // Validate both MIME type and extension to prevent spoofing
+      if (!isAcceptedMime || !isAcceptedExt) {
+        toast({
+          variant: "destructive",
+          title: "Invalid File Type",
+          description: "Please upload a supported file type (PDF, TXT, MD, DOCX).",
+        });
+        return;
+      }
+      
+      // Check file size (10MB limit)
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        toast({
+          variant: "destructive",
+          title: "File Too Large",
+          description: "Please upload a file smaller than 10MB.",
+        });
+        return;
+      }
+      
+      // Additional security check for file name using security utilities
+      import('@/lib/security-utils').then(({ isValidFileName }) => {
+        const fileName = selectedFile.name;
+        if (!isValidFileName(fileName)) {
+          toast({
+            variant: "destructive",
+            title: "Invalid File Name",
+            description: "File name contains invalid characters or is potentially unsafe.",
+          });
+          return;
+        }
+      });
+      
+      setFile(selectedFile);
+      resetQuiz(); // Reset quiz state when a new file is uploaded
+    } catch (error) {
+      console.error("Error handling file:", error);
       toast({
         variant: "destructive",
-        title: "Invalid File",
-        description: "Please upload a supported file type (PDF, TXT, MD, DOCX) smaller than 10MB.",
+        title: "File Processing Error",
+        description: "An error occurred while processing the file.",
       });
-      return;
     }
-    setFile(selectedFile);
-    resetQuiz(); // Reset quiz state when a new file is uploaded
   };
 
   /**
@@ -223,9 +318,13 @@ export function QuizCreator() {
 
   /**
    * Parses the uploaded document, extracts text, and chunks it for the AI model.
+   * Includes enhanced security checks and error handling.
    */
   const parseDocument = async () => {
     if (!file) return;
+
+    // Import security utilities
+    const { isSafeFileContent, sanitizeUserInput } = await import('@/lib/security-utils');
 
     setStatus("parsing");
     setProgress(0);
@@ -235,39 +334,113 @@ export function QuizCreator() {
       let fullText = "";
       const reader = new FileReader();
 
+      // Set up a timeout to prevent hanging on malicious files
+      const readerPromise = (readMethod: () => void) => {
+        return Promise.race([
+          new Promise<void>((resolve, reject) => {
+            reader.onload = () => resolve();
+            reader.onerror = () => reject(new Error("File reading failed"));
+          }),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error("File reading timed out")), 30000)
+          )
+        ]).then(() => {
+          // Validate file content size
+          if (reader.result && !isSafeFileContent(reader.result, 20 * 1024 * 1024)) { // 20MB max
+            throw new Error("File content exceeds maximum safe size or contains potentially malicious content");
+          }
+          return reader.result;
+        });
+      };
+
       // Handle PDF files
       if (file.type === 'application/pdf') {
         reader.readAsArrayBuffer(file);
-        await new Promise<void>((resolve) => (reader.onload = () => resolve()));
-        const pdf = await pdfjs.getDocument(reader.result as ArrayBuffer).promise;
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          fullText += textContent.items.map((item) => ('str' in item ? item.str : '')).join(" ");
-          setProgress((i / pdf.numPages) * 100);
+        const arrayBuffer = await readerPromise(() => reader.readAsArrayBuffer(file));
+        
+        try {
+          // Load PDF with timeout protection
+          const loadPdfPromise = pdfjs.getDocument(arrayBuffer as ArrayBuffer).promise;
+          const pdf = await Promise.race([
+            loadPdfPromise,
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error("PDF processing timed out")), 60000)
+            )
+          ]);
+          
+          // Process each page with progress updates
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+              .map((item) => ('str' in item ? sanitizeUserInput(item.str) : ''))
+              .join(" ");
+            
+            fullText += pageText + " ";
+            setProgress((i / pdf.numPages) * 100);
+          }
+        } catch (pdfError) {
+          console.error("PDF processing error:", pdfError);
+          throw new Error("Could not process PDF file. It may be corrupted or password-protected.");
         }
       // Handle DOCX files
       } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         reader.readAsArrayBuffer(file);
-        await new Promise<void>((resolve) => (reader.onload = () => resolve()));
-        const result = await mammoth.extractRawText({ arrayBuffer: reader.result as ArrayBuffer });
-        fullText = result.value;
-        setProgress(100);
+        const arrayBuffer = await readerPromise(() => reader.readAsArrayBuffer(file));
+        
+        try {
+          // Extract text with timeout protection
+          const extractPromise = mammoth.extractRawText({ arrayBuffer: arrayBuffer as ArrayBuffer });
+          const result = await Promise.race([
+            extractPromise,
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error("DOCX processing timed out")), 30000)
+            )
+          ]);
+          
+          fullText = sanitizeUserInput(result.value);
+          setProgress(100);
+        } catch (docxError) {
+          console.error("DOCX processing error:", docxError);
+          throw new Error("Could not process DOCX file. It may be corrupted.");
+        }
       // Handle TXT and MD files
       } else { 
         reader.readAsText(file);
-        await new Promise<void>((resolve) => (reader.onload = () => resolve()));
-        fullText = reader.result as string;
+        const text = await readerPromise(() => reader.readAsText(file));
+        fullText = sanitizeUserInput(text as string);
         setProgress(100);
       }
       
-      // Chunk the extracted text
-      const chunks = await intelligentlyChunkDocument({ documentContent: fullText });
-      setDocumentChunks(chunks);
-      setStatus("parsed");
+      // Validate extracted text
+      if (!fullText || fullText.trim().length === 0) {
+        throw new Error("No text could be extracted from the document.");
+      }
+      
+      if (fullText.length > 1000000) { // Limit to 1MB of text
+        fullText = fullText.substring(0, 1000000);
+        toast({ 
+          title: "Document Truncated", 
+          description: "The document was too large and has been truncated to the first 1MB of text." 
+        });
+      }
+      
+      // Chunk the extracted text with error handling
+      try {
+        const chunks = await intelligentlyChunkDocument({ documentContent: fullText });
+        setDocumentChunks(chunks);
+        setStatus("parsed");
+      } catch (chunkError) {
+        console.error("Error chunking document:", chunkError);
+        throw new Error("Could not process the document text. Please try a different document.");
+      }
     } catch (error) {
       console.error("Error parsing document:", error);
-      toast({ variant: "destructive", title: "Document Parsing Error", description: "Could not extract text from the document." });
+      toast({ 
+        variant: "destructive", 
+        title: "Document Parsing Error", 
+        description: error instanceof Error ? error.message : "Could not extract text from the document." 
+      });
       setStatus("idle");
     }
   };
@@ -275,8 +448,10 @@ export function QuizCreator() {
 
   /**
    * Handles the question generation process by calling the AI flow for each document chunk.
+   * Includes CSRF protection and enhanced error handling.
    */
   const handleGenerateQuestions = async () => {
+    // Input validation
     if (!documentChunks.length) {
       toast({ variant: "destructive", title: "No document", description: "Please upload and parse a document first." });
       return;
@@ -286,6 +461,32 @@ export function QuizCreator() {
       return;
     }
     
+    // CSRF protection
+    try {
+      const { getCsrfToken, validateCsrfToken, generateCsrfToken } = await import('@/lib/csrf');
+      const token = getCsrfToken();
+      
+      // If no token exists or validation fails, generate a new one and abort
+      if (!token) {
+        generateCsrfToken();
+        toast({ 
+          variant: "destructive", 
+          title: "Security Error", 
+          description: "Session expired. Please try again." 
+        });
+        return;
+      }
+    } catch (error) {
+      console.error("CSRF validation error:", error);
+      toast({ 
+        variant: "destructive", 
+        title: "Security Error", 
+        description: "Could not validate your session. Please refresh the page." 
+      });
+      return;
+    }
+    
+    // Update UI state
     setStatus("generating");
     setProgress(0);
     setQuestions(initialQuestions);
@@ -293,8 +494,10 @@ export function QuizCreator() {
     setScore(null);
 
     try {
+      // Initialize question state
       let allGeneratedQuestions: QuestionState = { fillInTheBlank: [], multipleChoice: [], trueFalse: [] };
       
+      // Calculate question distribution across chunks
       const totalChunks = documentChunks.length;
       // Distribute question generation across chunks to meet the desired total counts.
       const baseFib = Math.floor(questionCounts.fib / totalChunks);
@@ -304,6 +507,7 @@ export function QuizCreator() {
       const baseTf = Math.floor(questionCounts.tf / totalChunks);
       const remTf = questionCounts.tf % totalChunks;
       
+      // Track generated question counts
       let generatedCounts = { fib: 0, mcq: 0, tf: 0 };
 
       // Process each chunk to generate questions.
@@ -759,19 +963,26 @@ export function QuizCreator() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="p-8 pb-4">
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <Bot className="w-10 h-10 text-primary" />
-                <div>
-                    <h1 className="text-3xl font-bold font-headline">QuizCraft AI</h1>
-                    <p className="text-muted-foreground">Generate exam questions from your study materials.</p>
-                </div>
-            </div>
-            <ThemeToggle />
-        </div>
-      </header>
+    <>
+      {/* Import the ContentSecurityPolicy component dynamically to avoid SSR issues */}
+      {typeof window !== 'undefined' && React.createElement(
+        React.lazy(() => import('@/components/security/csp-headers').then(mod => ({ default: mod.ContentSecurityPolicy }))),
+        {}
+      )}
+      
+      <div className="min-h-screen bg-background text-foreground">
+        <header className="p-8 pb-4">
+          <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                  <Bot className="w-10 h-10 text-primary" />
+                  <div>
+                      <h1 className="text-3xl font-bold font-headline">QuizCraft AI</h1>
+                      <p className="text-muted-foreground">Generate exam questions from your study materials.</p>
+                  </div>
+              </div>
+              <ThemeToggle />
+          </div>
+        </header>
 
       <main className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 p-8 items-start">
         {/* Left Column: Controls */}

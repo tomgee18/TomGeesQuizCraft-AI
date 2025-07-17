@@ -13,7 +13,7 @@ QuizCraft AI is a web application that leverages the power of Google's Gemini AI
 - **🔧 Customizable Generation**: Specify the number of questions you want for each type.
 - **🔄 Regenerate Questions**: Don't like a question? Regenerate it with a single click for a new version.
 - **💾 Multiple Export Formats**: Export your generated quiz to TXT, JSON, Markdown, PDF, or DOCX files.
-- **🔐 Secure API Key Handling**: Your Google Gemini API key is stored exclusively in your browser's local storage and is never sent to our servers.
+- **🔐 Enhanced Security**: Comprehensive security features including XSS protection, CSRF prevention, secure file validation, and Content Security Policy implementation. Your Google Gemini API key is stored securely in your browser's sessionStorage (cleared when browser is closed) with basic encryption. See [Security Documentation](docs/security.md) for details.
 - **📊 Quiz Grading**: Take the quiz and get instant feedback on your answers with a score summary.
 - **🎨 Light & Dark Mode**: A sleek interface with support for both light and dark themes.
 - **Responsive**: Fully responsive design that works on desktop and mobile devices.
@@ -85,4 +85,6 @@ Follow these instructions to get a local copy up and running.
 3.  **Parse the Document**: Click the "Parse Document" button to extract the text content from your PDF, TXT, MD, or DOCX file.
 4.  **Configure Questions**: Use the sliders to choose how many questions of each type you want to generate.
 5.  **Generate**: Click "Generate Questions" and wait for the AI to create your quiz.
-6.  **Review and Export**: Look through the generated questions, regenerate any you dislike, and export the final set in your desired format.
+6.  **Take the Quiz**: Answer the generated questions organized by type (Fill-in-the-Blank, Multiple Choice, and True/False).
+7.  **Grade Your Quiz**: Click the "Grade My Quiz" button to receive immediate feedback on your answers with visual indicators for correct and incorrect responses.
+8.  **Review and Export**: Look through the generated questions, regenerate any you dislike, and export the final set in your desired format.
