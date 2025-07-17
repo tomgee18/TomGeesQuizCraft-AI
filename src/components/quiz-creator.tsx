@@ -841,26 +841,21 @@ export function QuizCreator() {
                         <div className="space-y-6">
                           {questions.fillInTheBlank.map((q, index) => {
                             const result = gradedResult?.results[q.id];
-                            const questionParts = q.question.split('____');
                             return (
                                 <div key={q.id} className={cn("p-4 rounded-lg border", result === true ? "border-green-500 bg-green-50 dark:bg-green-900/20" : result === false ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-gray-200 dark:border-gray-700")}>
                                   <div className="flex justify-between items-start">
                                     <div className="flex items-baseline gap-2">
                                         <Label htmlFor={`q-${q.id}`} className="flex-shrink-0 font-medium">
-                                          {index + 1}.
+                                          {index + 1}. {q.question.replace('____', '')}
                                         </Label>
-                                        <p>
-                                            {questionParts[0]}
-                                            <Input
-                                                id={`q-${q.id}`}
-                                                type="text"
-                                                className="inline-block w-48 mx-2 border-b-2 border-gray-400 focus:border-primary transition-all px-1"
-                                                value={userAnswers[q.id] || ''}
-                                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                disabled={showAnswers}
-                                            />
-                                            {questionParts[1]}
-                                        </p>
+                                        <Input
+                                            id={`q-${q.id}`}
+                                            type="text"
+                                            className="inline-block w-48 mx-2 border-b-2 border-gray-400 focus:border-primary transition-all px-1"
+                                            value={userAnswers[q.id] || ''}
+                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                            disabled={showAnswers}
+                                        />
                                     </div>
                                     <TooltipProvider>
                                       <Tooltip>
