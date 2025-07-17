@@ -22,7 +22,7 @@ This document outlines the security measures implemented in the QuizCraft AI app
 - CSP is applied both via Next.js middleware and meta tags for client-side rendering
 
 ### 3. CSRF Protection
-- CSRF tokens generated and validated for state-changing operations
+- CSRF tokens generated and validated for all state-changing operations
 - Tokens stored in sessionStorage and included in requests
 - Automatic initialization of CSRF protection on application load
 - Validation of CSRF tokens before sensitive operations
@@ -30,7 +30,7 @@ This document outlines the security measures implemented in the QuizCraft AI app
 
 ### 4. Secure Cookie Handling
 - Cookies set with SameSite=Strict attribute
-- Secure flag added when using HTTPS
+- Secure flag added when using HTTPS connections
 - Prevents cookies from being sent in cross-site requests
 
 ### 5. File Upload Security
@@ -96,6 +96,14 @@ In case of a security incident:
 - Regularly audit code for security vulnerabilities
 - Conduct periodic security testing
 - Stay informed about new security threats and best practices
+
+## Recent Security Improvements
+
+1. Fixed an unused parameter issue in the middleware.ts file to improve code quality
+2. Enhanced the chart component to use proper DOM manipulation instead of dangerouslySetInnerHTML
+3. Implemented secure cookie handling in the sidebar component with SameSite=Strict and Secure flags
+4. Added CSRF token validation for all state-changing operations
+5. Improved file upload validation with both MIME type and extension checks
 
 ## Contact
 

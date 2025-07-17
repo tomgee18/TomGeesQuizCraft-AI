@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 /**
  * Middleware to add security headers to all responses
  */
-export function middleware(request: NextRequest) {
+export function middleware(_request: NextRequest) {
   // Get the response
   const response = NextResponse.next();
 

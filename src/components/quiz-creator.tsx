@@ -777,12 +777,140 @@ export function QuizCreator() {
         const blob = new Blob([fullText(true)], { type: 'text/plain;charset=utf-8' });
         saveAs(blob, 'quizcraft-questions.txt');
     } else if (format === 'pdf') {
-        const doc = new jsPDF();
-        doc.setFont('Helvetica');
-        doc.setFontSize(12);
-        const lines = doc.splitTextToSize(fullText(true), 180);
-        doc.text(lines, 15, 20);
-        doc.save('quizcraft-questions.pdf');
+        try {
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+            doc.setFont('Helvetica');
+            doc.setFontSize(12);
+            
+            // In jspdf 3.x, we need to handle text more carefully
+            const content = fullText(true);
+            const lines = doc.splitTextToSize(content, 180);
+            
+            // Handle pagination for long content
+            const pageHeight = doc.internal.pageSize.height;
+            const lineHeight = 7; // Approximate line height in mm
+            let cursorY = 20;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+            
+            doc.save('quizcraft-questions.pdf');
+        } catch (error) {
+            console.error("PDF generation error:", error);
+            toast({
+                variant: "destructive",
+                title: "PDF Export Failed",
+                description: "Could not generate PDF. Please try another format."
+            });
+        }
+            const lineHeight = 7; // Approximate line height in mm
+            let cursorY = 20;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+            
+            doc.save('quizcraft-questions.pdf');
+        } catch (error) {
+            console.error("PDF generation error:", error);
+            toast({
+                variant: "destructive",
+                title: "PDF Export Failed",
+                description: "Could not generate PDF. Please try another format."
+            });
+        }
+            const pageHeight = doc.internal.pageSize.height;
+            const lineHeight = 7; // Approximate line height in mm
+            let cursorY = 20;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+            
+            doc.save('quizcraft-questions.pdf');
+            const pageHeight = doc.internal.pageSize.height;
+            const lineHeight = 7; // Approximate line height in mm
+            let cursorY = 20;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+            
+            doc.save('quizcraft-questions.pdf');
+        } catch (error) {
+            console.error("PDF generation error:", error);
+            toast({
+                variant: "destructive",
+                title: "PDF Export Failed",
+                description: "Could not generate PDF. Please try another format."
+            });
+        }
+            const pageHeight = doc.internal.pageSize.height;
+            const lineHeight = 7; // Approximate line height in mm
+            let cursorY = 20;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+            const pageHeight = doc.internal.pageSize.height;
+            const lineHeight = 7; // Approximate line height in mm
+            let cursorY = 20;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY > pageHeight - 20) { // Leave 20mm margin at bottom
+                    doc.addPage();
+                    cursorY = 20; // Reset cursor to top of new page with margin
+                }
+                doc.text(lines[i], 15, cursorY);
+                cursorY += lineHeight;
+            }
+            
+            doc.save('quizcraft-questions.pdf');
+        } catch (error) {
+            console.error("PDF generation error:", error);
+            toast({
+                variant: "destructive",
+                title: "PDF Export Failed",
+                description: "Could not generate PDF. Please try another format."
+            });
+        }
     } else if (format === 'docx') {
         const paragraphs: Paragraph[] = [];
         ['Fill-in-the-Blank', 'Multiple Choice', 'True/False'].forEach(type => {
