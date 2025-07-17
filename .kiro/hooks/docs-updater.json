@@ -1,0 +1,26 @@
+{
+  "name": "Documentation Updater",
+  "description": "Updates documentation when source files change",
+  "version": "1.0.0",
+  "triggers": [
+    {
+      "type": "fileChange",
+      "pattern": "src/**/*.{ts,tsx}",
+      "events": ["change", "create"]
+    },
+    {
+      "type": "fileChange",
+      "pattern": "*.{ts,tsx,json,mjs}",
+      "events": ["change", "create"]
+    },
+    {
+      "type": "fileChange",
+      "pattern": "src/**/*.{js,jsx}",
+      "events": ["change", "create"]
+    }
+  ],
+  "action": {
+    "type": "agent",
+    "prompt": "I've made changes to source code files in this project. Please review these changes and update the documentation accordingly. If there's a docs folder, update the relevant files there. If not, update the README.md file. Focus on keeping the documentation accurate and consistent with the current implementation. Here are the files that were changed: {{changedFiles}}"
+  }
+}

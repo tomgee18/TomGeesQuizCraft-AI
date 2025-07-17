@@ -6,13 +6,15 @@ QuizCraft AI is a web application that leverages the power of Google's Gemini AI
 
 ## ✨ Features
 
-- **📄 PDF Upload**: Upload any PDF document (up to 10MB) to use as a source for question generation.
+- **📄 Document Upload**: Upload PDF, TXT, MD, or DOCX documents (up to 10MB) to use as a source for question generation.
 - **🧠 AI-Powered Question Generation**: Utilizes Google Gemini to create relevant questions based on the document's content.
 - **✅ Multiple Question Types**: Generates a mix of Fill-in-the-Blank, Multiple Choice (MCQ), and True/False questions.
+- **🛡️ Robust Error Handling**: Enhanced parsing for multiple-choice questions with fallback options if the AI response format is unexpected.
 - **🔧 Customizable Generation**: Specify the number of questions you want for each type.
 - **🔄 Regenerate Questions**: Don't like a question? Regenerate it with a single click for a new version.
 - **💾 Multiple Export Formats**: Export your generated quiz to TXT, JSON, Markdown, PDF, or DOCX files.
 - **🔐 Secure API Key Handling**: Your Google Gemini API key is stored exclusively in your browser's local storage and is never sent to our servers.
+- **📊 Quiz Grading**: Take the quiz and get instant feedback on your answers with a score summary.
 - **🎨 Light & Dark Mode**: A sleek interface with support for both light and dark themes.
 - **Responsive**: Fully responsive design that works on desktop and mobile devices.
 
@@ -79,8 +81,8 @@ Follow these instructions to get a local copy up and running.
 ## Usage
 
 1.  **Enter your Gemini API Key**: Paste your key into the designated input field. It will be saved in your browser for future sessions.
-2.  **Upload a PDF**: Drag and drop a PDF file or click to select one from your computer.
-3.  **Parse the Document**: Click the "Parse PDF" button to extract the text content.
+2.  **Upload a Document**: Drag and drop a PDF, TXT, MD, or DOCX file or click to select one from your computer.
+3.  **Parse the Document**: Click the "Parse Document" button to extract the text content from your PDF, TXT, MD, or DOCX file.
 4.  **Configure Questions**: Use the sliders to choose how many questions of each type you want to generate.
 5.  **Generate**: Click "Generate Questions" and wait for the AI to create your quiz.
 6.  **Review and Export**: Look through the generated questions, regenerate any you dislike, and export the final set in your desired format.

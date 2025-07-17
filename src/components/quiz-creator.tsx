@@ -308,7 +308,17 @@ export function QuizCreator() {
 
       // Process each chunk to generate questions.
       for (let i = 0; i < totalChunks; i++) {
+        // Safely access the chunk with bounds checking
+        if (i >= documentChunks.length) {
+          console.warn(`Attempted to access chunk at index ${i} but only ${documentChunks.length} chunks exist`);
+          continue;
+        }
+        
         const chunk = documentChunks[i];
+        if (!chunk || chunk.trim() === '') {
+          console.warn(`Empty chunk found at index ${i}, skipping`);
+          continue;
+        }
         
         // Determine how many questions of each type to generate from this chunk.
         let numFib = baseFib + (i < remFib ? 1 : 0);
@@ -360,18 +370,45 @@ export function QuizCreator() {
   const parseAIResponse = (response: GenerateQuestionsOutput, context: string): QuestionState => {
     const parse = (raw: string[], type: Question['type']): Question[] => 
       raw.map((q) => {
-        const [questionText, ...answerParts] = q.split('Answer:');
-        const answer = answerParts.join('Answer:').trim();
+        // Safely split question and answer
+        let questionText = '';
+        let answer = '';
+        try {
+          const parts = q.split('Answer:');
+          if (parts.length > 0) {
+            questionText = parts[0] || '';
+            answer = parts.length > 1 ? parts.slice(1).join('Answer:').trim() : '';
+          }
+        } catch (error) {
+          console.error("Error splitting question and answer:", error);
+        }
+        
         let options;
-        let finalQuestion = questionText.trim();
+        let finalQuestion = questionText.trim() || 'Question parsing error';
 
         // Special parsing for multiple-choice questions to extract options.
         if (type === 'mcq') {
-            const mcqParts = questionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
-            if(mcqParts) {
-                const [, question, opts] = mcqParts;
-                finalQuestion = question.trim();
-                options = opts.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean);
+            try {
+                const mcqParts = questionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
+                if(mcqParts && mcqParts.length >= 3) {
+                    const [, question, opts] = mcqParts;
+                    finalQuestion = question?.trim() || questionText.trim();
+                    options = opts?.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean) || [];
+                    
+                    // Ensure we have options
+                    if (!options.length) {
+                        console.warn("Failed to parse MCQ options properly:", questionText);
+                        options = ["A. No options parsed correctly"];
+                    }
+                } else {
+                    console.warn("MCQ format not recognized:", questionText);
+                    finalQuestion = questionText.trim();
+                    options = ["A. Option parsing failed"];
+                }
+            } catch (error) {
+                console.error("Error parsing MCQ question:", error);
+                finalQuestion = questionText.trim();
+                options = ["A. Error in option parsing"];
             }
         }
         return { id: getUniqueQuestionId(type), type, question: finalQuestion, answer, options, context };
@@ -398,20 +435,46 @@ export function QuizCreator() {
         context: question.context,
       });
 
-      // Parse the regenerated question and answer.
-      const [newQuestionText, ...answerParts] = response.regeneratedQuestion.split('Answer:');
-      const newAnswer = answerParts.join('Answer:').trim();
+      // Safely parse the regenerated question and answer.
+      let newQuestionText = '';
+      let newAnswer = '';
+      try {
+        const parts = response.regeneratedQuestion.split('Answer:');
+        if (parts.length > 0) {
+          newQuestionText = parts[0] || '';
+          newAnswer = parts.length > 1 ? parts.slice(1).join('Answer:').trim() : '';
+        }
+      } catch (error) {
+        console.error("Error splitting regenerated question and answer:", error);
+        newQuestionText = response.regeneratedQuestion;
+      }
 
       let newOptions;
       let finalNewQuestion = newQuestionText.trim();
       
       // If it's an MCQ, re-parse the options.
       if (question.type === 'mcq' && newQuestionText) {
-          const mcqParts = newQuestionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
-          if (mcqParts) {
-              const [, qText, opts] = mcqParts;
-              finalNewQuestion = qText.trim();
-              newOptions = opts.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean);
+          try {
+              const mcqParts = newQuestionText.trim().match(/(.*?)(A\..*?B\..*?C\..*?D\..*)/s);
+              if (mcqParts && mcqParts.length >= 3) {
+                  const [, qText, opts] = mcqParts;
+                  finalNewQuestion = qText?.trim() || newQuestionText.trim();
+                  newOptions = opts?.split(/(?=[A-D]\.)/).map(opt => opt.trim()).filter(Boolean) || [];
+                  
+                  // Ensure we have options
+                  if (!newOptions.length) {
+                      console.warn("Failed to parse regenerated MCQ options properly:", newQuestionText);
+                      newOptions = ["A. No options parsed correctly"];
+                  }
+              } else {
+                  console.warn("Regenerated MCQ format not recognized:", newQuestionText);
+                  finalNewQuestion = newQuestionText.trim();
+                  newOptions = ["A. Option parsing failed"];
+              }
+          } catch (error) {
+              console.error("Error parsing regenerated MCQ question:", error);
+              finalNewQuestion = newQuestionText.trim();
+              newOptions = ["A. Error in option parsing"];
           }
       }
 
@@ -453,22 +516,27 @@ export function QuizCreator() {
     let correctCount = 0;
     const allQuestions = [...questions.fillInTheBlank, ...questions.multipleChoice, ...questions.trueFalse];
     allQuestions.forEach(q => {
-      const userAnswer = userAnswers[q.id];
-      if (userAnswer) {
+      try {
+        const userAnswer = userAnswers[q.id];
+        if (!userAnswer) return;
+        
         if (q.type === 'mcq') {
           // Accept either the letter (e.g., "C"), the letter with dot ("C."), or the full option text
           const normalizedUser = userAnswer.trim().toLowerCase();
-          const normalizedAnswer = q.answer.trim().toLowerCase();
+          const normalizedAnswer = q.answer ? q.answer.trim().toLowerCase() : '';
+          
           if (
             normalizedUser === normalizedAnswer ||
             normalizedUser.replace('.', '') === normalizedAnswer.replace('.', '') ||
-            (q.options && q.options.some(opt => normalizedUser === opt.trim().toLowerCase()))
+            (q.options && q.options.some(opt => opt && normalizedUser === opt.trim().toLowerCase()))
           ) {
             correctCount++;
           }
-        } else if (userAnswer.trim().toLowerCase() === q.answer.trim().toLowerCase()) {
+        } else if (q.answer && userAnswer.trim().toLowerCase() === q.answer.trim().toLowerCase()) {
           correctCount++;
         }
+      } catch (error) {
+        console.error("Error grading question:", error, q);
       }
     });
 
@@ -588,6 +656,7 @@ export function QuizCreator() {
             disabled={isGraded}
             className={cn("w-full md:w-1/2", isGraded && (isCorrect ? 'border-green-500' : 'border-red-500'))}
             placeholder="Your answer"
+            key={`input-${q.id}`} // Add a stable key to maintain focus
           />
         </div>
       );
@@ -600,7 +669,7 @@ export function QuizCreator() {
             {q.options.map((opt, i) => (
               <div key={i} className="flex items-center space-x-2">
                 <RadioGroupItem value={opt} id={`${q.id}-${i}`} />
-                <Label htmlFor={`${q.id}-${i}`} className={cn(isGraded && q.answer.startsWith(opt[0]) && 'text-green-500 font-bold')}>{opt}</Label>
+                <Label htmlFor={`${q.id}-${i}`} className={cn(isGraded && opt && opt.length > 0 && q.answer && q.answer.startsWith(opt[0]) && 'text-green-500 font-bold')}>{opt}</Label>
               </div>
             ))}
           </RadioGroup>
