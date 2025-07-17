@@ -4,52 +4,41 @@ import type { NextRequest } from 'next/server';
 /**
  * Middleware to add security headers to all responses
  */
-export function middleware(_request: NextRequest) {
-  // Get the response
-  const response = NextResponse.next();
+export function middleware(request: NextRequest) {
+  const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+  
+  // Clone the request headers and set a new nonce header
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
 
-  // Add security headers
-  const headers = response.headers;
+  // Create the response object
+  const response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
 
-  // Content Security Policy
-  headers.set(
-    'Content-Security-Policy',
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "font-src 'self' https://fonts.gstatic.com; " +
-    "img-src 'self' data: https://storage.googleapis.com https://placehold.co; " +
-    "connect-src 'self' https://generativelanguage.googleapis.com; " +
-    "object-src 'none'; " +
-    "form-action 'self'; " +
-    "frame-src 'self'; " +
-    "base-uri 'self'; " +
-    "upgrade-insecure-requests;"
-  );
+  const cspHeader = [
+    `default-src 'self'`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https: http: 'unsafe-inline'`,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+    `font-src 'self' https://fonts.gstatic.com`,
+    `img-src 'self' data: https://storage.googleapis.com https://placehold.co`,
+    `connect-src 'self' https://generativelanguage.googleapis.com`,
+    `object-src 'none'`,
+    `form-action 'self'`,
+    `frame-ancestors 'none'`,
+    `base-uri 'self'`,
+    `upgrade-insecure-requests`,
+  ].join('; ');
 
-  // Prevent MIME type sniffing
-  headers.set('X-Content-Type-Options', 'nosniff');
-
-  // Prevent clickjacking
-  headers.set('X-Frame-Options', 'DENY');
-
-  // Enable browser XSS protection
-  headers.set('X-XSS-Protection', '1; mode=block');
-
-  // Control referrer information
-  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-
-  // Restrict browser features
-  headers.set(
-    'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=()'
-  );
-
-  // Set strict transport security for HTTPS
-  headers.set(
-    'Strict-Transport-Security',
-    'max-age=31536000; includeSubDomains; preload'
-  );
+  response.headers.set('Content-Security-Policy', cspHeader);
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-XSS-Protection', '1; mode=block');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
   return response;
 }

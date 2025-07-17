@@ -45,10 +45,6 @@ import {
 } from "@/components/ui/tooltip";
 import {
   Bot,
-  ChevronDown,
-  ChevronRight,
-  Clipboard,
-  Download,
   FileCode2,
   FileJson2,
   FileText,
@@ -59,6 +55,7 @@ import {
   Sparkles,
   UploadCloud,
   X,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -140,7 +137,7 @@ export function QuizCreator() {
 
   /**
    * Effect to load API key from sessionStorage on component mount.
-   * This prevents hydration errors by ensuring localStorage is only accessed on the client.
+   * This prevents hydration errors by ensuring sessionStorage is only accessed on the client.
    */
   useEffect(() => {
     setHasMounted(true);
@@ -169,52 +166,44 @@ export function QuizCreator() {
    * @param type The type of question ('fill', 'mcq', 'tf').
    * @returns A structured Question object.
    */
-  const parseQuestion = (rawQuestion: string, type: "fill" | "mcq" | "tf"): Question | null => {
+  const parseQuestion = useCallback((rawQuestion: string, type: "fill" | "mcq" | "tf"): Question | null => {
     const answerPrefix = "Answer:";
     const answerIndex = rawQuestion.lastIndexOf(answerPrefix);
 
     if (answerIndex === -1) {
       console.error("Could not find answer for question:", rawQuestion);
-      return null; // Or handle this case more gracefully
+      toast({
+        variant: "destructive",
+        title: "Question Parsing Error",
+        description: "The AI returned a question in an unexpected format. Please try regenerating it.",
+      });
+      return null;
     }
 
     const questionText = rawQuestion.substring(0, answerIndex).trim();
     const answerText = rawQuestion.substring(answerIndex + answerPrefix.length).trim();
 
-    let options: string[] | undefined;
-    if (type === 'mcq') {
-        const lines = questionText.split('\n').filter(line => line.trim() !== '');
-        const questionPart = lines[0];
-        const optionsArray = lines.slice(1).map(line => line.trim());
+    const question: Question = {
+      id: generateUniqueId(),
+      type,
+      question: questionText,
+      answer: answerText,
+    };
 
-        if (optionsArray.length > 1) { // Basic check for options
-            return {
-                id: generateUniqueId(),
-                type,
-                question: questionPart,
-                options: optionsArray,
-                answer: answerText,
-            };
-        } else {
-             // Fallback for single-line MCQs
-             return {
-                id: generateUniqueId(),
-                type,
-                question: questionText,
-                options: [], // No options could be parsed
-                answer: answerText
-             };
-        }
+    if (type === 'mcq') {
+      const lines = questionText.split('\n').filter(line => line.trim() !== '');
+      if (lines.length > 1) {
+        question.question = lines[0];
+        question.options = lines.slice(1).map(line => line.trim().replace(/^[A-D]\.?\s*/, ''));
+      } else {
+        // Fallback for single-line MCQs, though the prompt discourages this.
+        question.options = [];
+      }
     }
 
-    return {
-        id: generateUniqueId(),
-        type,
-        question: questionText,
-        options,
-        answer: answerText,
-    };
-  };
+    return question;
+  }, [toast]);
+
 
   /**
    * Handles changes to the API key input field and saves the key to sessionStorage.
@@ -240,7 +229,7 @@ export function QuizCreator() {
    * @param e The input change event.
    */
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
     }
   };
@@ -272,6 +261,9 @@ export function QuizCreator() {
   const handleRemoveFile = () => {
     setFile(null);
     setTextContent("");
+    setQuestions({ fillInTheBlank: [], multipleChoice: [], trueFalse: [] });
+    setGradedResult(null);
+    setUserAnswers({});
   };
 
   /**
@@ -296,65 +288,60 @@ export function QuizCreator() {
       let text = "";
       const reader = new FileReader();
 
-      // Logic for TXT and MD files
+      const processText = (extractedText: string) => {
+        setTextContent(extractedText);
+        setParsingProgress(100);
+        setParsingStatus("Parsing complete!");
+        toast({ title: "Document Parsed", description: "You can now configure and generate questions." });
+      };
+
       if (file.type === "text/plain" || file.name.endsWith(".md")) {
-        reader.onload = (e) => {
-          text = e.target?.result as string;
-          setTextContent(text);
-          setParsingProgress(100);
-          setParsingStatus("Parsing complete!");
-          setIsLoading(prev => ({ ...prev, parsing: false }));
-        };
+        reader.onload = (e) => processText(e.target?.result as string);
         reader.readAsText(file);
       } 
-      // Logic for DOCX files
       else if (file.name.endsWith(".docx")) {
         reader.onload = async (e) => {
-          const arrayBuffer = e.target?.result as ArrayBuffer;
           try {
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            setTextContent(result.value);
-            setParsingProgress(100);
-            setParsingStatus("Parsing complete!");
-          } catch (error) {
-            console.error("Error parsing DOCX:", error);
-            toast({ variant: "destructive", title: "DOCX Parsing Error" });
-          } finally {
-            setIsLoading(prev => ({ ...prev, parsing: false }));
+            const result = await mammoth.extractRawText({ arrayBuffer: e.target?.result as ArrayBuffer });
+            processText(result.value);
+          } catch (mammothError) {
+            console.error("Error parsing DOCX:", mammothError);
+            throw new Error("Failed to parse DOCX file.");
           }
         };
         reader.readAsArrayBuffer(file);
       } 
-      // Logic for PDF files
       else if (file.type === "application/pdf") {
         reader.onload = async (e) => {
-          const arrayBuffer = e.target?.result as ArrayBuffer;
-          const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-          let fullText = "";
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            const pageText = content.items.map((item: any) => item.str).join(" ");
-            fullText += pageText + "\n";
-            const progress = (i / pdf.numPages) * 100;
-            setParsingProgress(progress);
-            setParsingStatus(`Processing page ${i} of ${pdf.numPages}...`);
+          try {
+            const pdf = await pdfjs.getDocument({ data: e.target?.result as ArrayBuffer }).promise;
+            let fullText = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const content = await page.getTextContent();
+              fullText += content.items.map((item: any) => item.str).join(" ") + "\n";
+              setParsingProgress((i / pdf.numPages) * 100);
+              setParsingStatus(`Processing page ${i} of ${pdf.numPages}...`);
+            }
+            processText(fullText);
+          } catch (pdfError) {
+            console.error("Error parsing PDF:", pdfError);
+            throw new Error("Failed to parse PDF file. It might be corrupted or protected.");
           }
-          setTextContent(fullText);
-          setParsingStatus("Parsing complete!");
-          setIsLoading(prev => ({ ...prev, parsing: false }));
         };
         reader.readAsArrayBuffer(file);
       } else {
-        throw new Error("Unsupported file type");
+        throw new Error("Unsupported file type. Please use PDF, DOCX, TXT, or MD.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error parsing file:", error);
       toast({
         variant: "destructive",
         title: "Parsing Failed",
-        description: "Could not parse the selected file. Please ensure it's a valid PDF, DOCX, TXT, or MD file.",
+        description: error.message || "Could not parse the selected file.",
       });
+      handleRemoveFile();
+    } finally {
       setIsLoading(prev => ({ ...prev, parsing: false }));
     }
   }, [file, toast]);
@@ -386,59 +373,53 @@ export function QuizCreator() {
    * Fetches generated questions from the AI model.
    * It handles chunking the document and distributing question generation across chunks.
    */
-  const handleGenerateQuestions = async () => {
+  const handleGenerateQuestions = useCallback(async () => {
     if (!textContent) {
-      toast({ variant: "destructive", title: "No text content" });
+      toast({ variant: "destructive", title: "No text content", description: "Please parse a document first." });
       return;
     }
     if (!apiKey) {
-      toast({ variant: "destructive", title: "API Key is missing" });
+      toast({ variant: "destructive", title: "API Key is missing", description: "Please enter your Gemini API key." });
       return;
     }
     
     setIsLoading(prev => ({ ...prev, generating: true }));
     setGradedResult(null); // Reset grading when regenerating
+    setUserAnswers({});
     
     try {
         const textChunks = chunkText(textContent);
         const totalQuestions = questionCounts.fillInTheBlank + questionCounts.multipleChoice + questionCounts.trueFalse;
         
-        // If there are no questions to generate, stop here.
         if (totalQuestions === 0) {
             setQuestions({ fillInTheBlank: [], multipleChoice: [], trueFalse: [] });
             setIsLoading(prev => ({ ...prev, generating: false }));
             return;
         }
 
-        // Distribute question counts across chunks
-        const questionsPerChunk = Math.ceil(totalQuestions / textChunks.length);
-        
         let allGenerated: GeneratedQuestions = { fillInTheBlank: [], multipleChoice: [], trueFalse: [] };
-
-        for (const chunk of textChunks) {
-            if (allGenerated.fillInTheBlank.length >= questionCounts.fillInTheBlank &&
-                allGenerated.multipleChoice.length >= questionCounts.multipleChoice &&
-                allGenerated.trueFalse.length >= questionCounts.trueFalse) {
-                break; // Stop if we have enough of all types
-            }
-
-            const numFill = Math.min(questionsPerChunk, questionCounts.fillInTheBlank - allGenerated.fillInTheBlank.length);
-            const numMcq = Math.min(questionsPerChunk, questionCounts.multipleChoice - allGenerated.multipleChoice.length);
-            const numTf = Math.min(questionsPerChunk, questionCounts.trueFalse - allGenerated.trueFalse.length);
-
-            const response = await generateQuestions({
-                text: chunk,
-                numFillInTheBlank: Math.max(0, numFill),
-                numMultipleChoice: Math.max(0, numMcq),
-                numTrueFalse: Math.max(0, numTf),
-            });
+        
+        const promises = textChunks.map(chunk => {
+            const numFill = Math.ceil(questionCounts.fillInTheBlank / textChunks.length);
+            const numMcq = Math.ceil(questionCounts.multipleChoice / textChunks.length);
+            const numTf = Math.ceil(questionCounts.trueFalse / textChunks.length);
             
+            return generateQuestions({
+                text: chunk,
+                numFillInTheBlank: numFill,
+                numMultipleChoice: numMcq,
+                numTrueFalse: numTf,
+            });
+        });
+
+        const results = await Promise.all(promises);
+
+        for (const response of results) {
             allGenerated.fillInTheBlank.push(...response.fillInTheBlank.map(q => parseQuestion(q, 'fill')).filter(Boolean) as Question[]);
             allGenerated.multipleChoice.push(...response.multipleChoice.map(q => parseQuestion(q, 'mcq')).filter(Boolean) as Question[]);
             allGenerated.trueFalse.push(...response.trueFalse.map(q => parseQuestion(q, 'tf')).filter(Boolean) as Question[]);
         }
 
-        // Trim to desired number of questions
         setQuestions({
             fillInTheBlank: allGenerated.fillInTheBlank.slice(0, questionCounts.fillInTheBlank),
             multipleChoice: allGenerated.multipleChoice.slice(0, questionCounts.multipleChoice),
@@ -447,18 +428,18 @@ export function QuizCreator() {
 
     } catch (error) {
       console.error("Error generating questions:", error);
-      toast({ variant: "destructive", title: "Generation Failed" });
+      toast({ variant: "destructive", title: "Generation Failed", description: "The AI failed to generate questions. Please check your API key and try again." });
     } finally {
       setIsLoading(prev => ({ ...prev, generating: false }));
     }
-  };
+  }, [apiKey, parseQuestion, questionCounts, textContent, toast]);
 
   /**
    * Regenerates a single question.
    * @param type The type of the question to regenerate.
    * @param questionToRegen The original question object.
    */
-  const handleRegenerateQuestion = async (type: QuestionType, questionToRegen: Question) => {
+  const handleRegenerateQuestion = useCallback(async (type: QuestionType, questionToRegen: Question) => {
     setIsLoading(prev => ({ ...prev, regenerating: questionToRegen.id }));
     try {
         const questionTypeMap = {
@@ -487,7 +468,7 @@ export function QuizCreator() {
     } finally {
         setIsLoading(prev => ({ ...prev, regenerating: null }));
     }
-  };
+  }, [parseQuestion, textContent, toast]);
   
   /**
    * Handles changes to user's answers.
@@ -514,9 +495,17 @@ export function QuizCreator() {
     const results: { [questionId: string]: boolean } = {};
 
     allQuestions.forEach(q => {
-      const userAnswer = userAnswers[q.id];
-      // For MCQs, the answer might be "A. Tokyo", so we check if the user's answer "A" is part of it.
-      const isCorrect = userAnswer && q.answer.toLowerCase().includes(userAnswer.toLowerCase());
+      const userAnswer = userAnswers[q.id]?.trim().toLowerCase();
+      const correctAnswer = q.answer.trim().toLowerCase();
+      
+      let isCorrect = false;
+      if (q.type === 'mcq') {
+        // For MCQs, answer can be "C. Tokyo" or just "C" or "Tokyo"
+        isCorrect = correctAnswer.includes(userAnswer || "___xyz___");
+      } else {
+        isCorrect = userAnswer === correctAnswer;
+      }
+
       if (isCorrect) {
         correctCount++;
       }
@@ -526,8 +515,11 @@ export function QuizCreator() {
     const score = allQuestions.length > 0 ? (correctCount / allQuestions.length) * 100 : 0;
     setGradedResult({ score, results });
     setShowAnswers(true);
+    toast({
+        title: "Quiz Graded!",
+        description: `You scored ${score.toFixed(0)}%.`,
+    });
   };
-
 
   /**
    * Exports the generated questions to a specified format (TXT, JSON, MD, PDF, DOCX).
@@ -545,15 +537,14 @@ export function QuizCreator() {
       return;
     }
 
-    // Helper to format a single question.
     const questionText = (q: Question) => {
       if (q.type === 'mcq' && q.options) {
-        return `${q.question}\n${q.options.join('\n')}`;
+        const optionsString = q.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join('\n');
+        return `${q.question}\n${optionsString}`;
       }
       return q.question.replace('____', '________________');
     };
     
-    // Helper to generate the full text content for text-based formats.
     const fullText = (showAnswers: boolean) =>
       ['Fill-in-the-Blank', 'Multiple Choice', 'True/False'].map(type => {
         const qList = type === 'Fill-in-the-Blank' ? questions.fillInTheBlank : type === 'Multiple Choice' ? questions.multipleChoice : questions.trueFalse;
@@ -563,13 +554,12 @@ export function QuizCreator() {
         ).join('\n\n') + '\n\n';
       }).join('');
 
-    // Handle different export formats
     if (format === "txt") {
       const blob = new Blob([fullText(true)], { type: "text/plain;charset=utf-8" });
       saveAs(blob, "quizcraft-questions.txt");
     } else if (format === 'pdf') {
         const doc = new jsPDF();
-        doc.setFont('Helvetica');
+        doc.setFont('Helvetica', 'normal');
         doc.setFontSize(12);
         const content = fullText(true);
         const lines = doc.splitTextToSize(content, 180);
@@ -626,13 +616,13 @@ export function QuizCreator() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 font-body">
+    <div className="min-h-screen bg-background dark:bg-gray-900">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm">
+      <header className="bg-card shadow-sm sticky top-0 z-40">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Sparkles className="text-primary h-8 w-8" />
-            <h1 className="text-2xl font-bold font-headline text-gray-800 dark:text-white">
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
               QuizCraft AI
             </h1>
           </div>
@@ -651,7 +641,7 @@ export function QuizCreator() {
                 <span>API Key</span>
               </CardTitle>
               <CardDescription>
-                Enter your Google Gemini API key. It's stored securely in your browser's session storage and never sent to our servers.
+                Enter your Google Gemini API key. It's stored securely in your browser's session storage.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -679,7 +669,7 @@ export function QuizCreator() {
             {file ? (
                 <div className="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
                     <div className="flex items-center gap-2 overflow-hidden">
-                        {file.type.includes('pdf') ? <File size={20} className="text-red-500" /> : <FileText size={20} className="text-blue-500" />}
+                        <File size={20} className="text-primary flex-shrink-0" />
                         <span className="truncate text-sm font-medium">{file.name}</span>
                     </div>
                     <Button variant="ghost" size="icon" onClick={handleRemoveFile}>
@@ -737,7 +727,6 @@ export function QuizCreator() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Sliders for question counts */}
                 <div>
                   <Label>Fill-in-the-Blank: {questionCounts.fillInTheBlank}</Label>
                   <Slider
@@ -768,13 +757,14 @@ export function QuizCreator() {
                 <Button
                   onClick={handleGenerateQuestions}
                   disabled={isLoading.generating}
-                  className="w-full bg-primary hover:bg-primary/90 text-white"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   {isLoading.generating ? (
-                    <Loader2 className="animate-spin" />
+                    <Loader2 className="animate-spin mr-2" />
                   ) : (
-                    "Generate Questions"
+                    <Sparkles className="mr-2 h-4 w-4" />
                   )}
+                  Generate Questions
                 </Button>
               </CardContent>
             </Card>
@@ -785,29 +775,29 @@ export function QuizCreator() {
         <div className="lg:col-span-2">
           {hasQuestions ? (
             <Card className="shadow-lg">
-                <CardHeader className="flex flex-row justify-between items-center">
+                <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <CardTitle>Generated Quiz</CardTitle>
                         <CardDescription>Review the questions or start the quiz.</CardDescription>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 sm:gap-4 self-end sm:self-center">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="outline"><Download className="mr-2" /> Export</Button>
+                                <Button variant="outline"><Download className="mr-2 h-4 w-4" /> Export</Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent>
-                                <DropdownMenuItem onSelect={() => handleExport('txt')}><FileText className="mr-2" />TXT</DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleExport('json')}><FileJson2 className="mr-2" />JSON</DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleExport('md')}><FileCode2 className="mr-2" />Markdown</DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleExport('pdf')}><File className="mr-2" />PDF</DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleExport('docx')}><File className="mr-2" />DOCX</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleExport('txt')}><FileText className="mr-2 h-4 w-4" />TXT</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleExport('json')}><FileJson2 className="mr-2 h-4 w-4" />JSON</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleExport('md')}><FileCode2 className="mr-2 h-4 w-4" />Markdown</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleExport('pdf')}><File className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleExport('docx')}><File className="mr-2 h-4 w-4" />DOCX</DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <div className="flex items-center space-x-2">
-                                        <Label htmlFor="show-answers">Show Answers</Label>
+                                        <Label htmlFor="show-answers" className="text-sm">Show Answers</Label>
                                         <Switch
                                             id="show-answers"
                                             checked={showAnswers}
@@ -823,15 +813,13 @@ export function QuizCreator() {
                     </div>
                 </CardHeader>
               <CardContent>
-                {/* Grading Result Display */}
                 {gradedResult && (
                     <div className="p-4 mb-6 bg-blue-100 dark:bg-blue-900/50 border border-blue-200 dark:border-blue-800 rounded-lg text-center">
                         <h3 className="text-xl font-bold text-blue-800 dark:text-blue-200">Quiz Complete!</h3>
-                        <p className="text-3xl font-headline mt-2">Your Score: {gradedResult.score.toFixed(0)}%</p>
+                        <p className="text-4xl font-bold mt-2 text-primary">{gradedResult.score.toFixed(0)}%</p>
                     </div>
                 )}
                 <Accordion type="multiple" defaultValue={["fillInTheBlank", "multipleChoice", "trueFalse"]} className="w-full">
-                  {/* Fill-in-the-Blank Section */}
                   {questions.fillInTheBlank.length > 0 && (
                     <AccordionItem value="fillInTheBlank">
                       <AccordionTrigger className="text-lg font-semibold">
@@ -843,20 +831,19 @@ export function QuizCreator() {
                             const result = gradedResult?.results[q.id];
                             return (
                                 <div key={q.id} className={cn("p-4 rounded-lg border", result === true ? "border-green-500 bg-green-50 dark:bg-green-900/20" : result === false ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-gray-200 dark:border-gray-700")}>
-                                  <div className="flex justify-between items-start">
-                                    <div className="flex items-baseline gap-2">
-                                        <Label htmlFor={`q-${q.id}`} className="flex-shrink-0 font-medium">
-                                          {index + 1}. {q.question.replace('____', '')}
-                                        </Label>
-                                        <Input
-                                            id={`q-${q.id}`}
-                                            type="text"
-                                            className="inline-block w-48 mx-2 border-b-2 border-gray-400 focus:border-primary transition-all px-1"
-                                            value={userAnswers[q.id] || ''}
-                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                            disabled={showAnswers}
-                                        />
-                                    </div>
+                                  <div className="flex justify-between items-start gap-4">
+                                    <Label htmlFor={`q-${q.id}`} className="font-medium flex-grow">
+                                      {index + 1}. {q.question.replace('____', '')}
+                                      <Input
+                                          id={`q-${q.id}`}
+                                          type="text"
+                                          className="mt-2"
+                                          placeholder="Type your answer here..."
+                                          value={userAnswers[q.id] || ''}
+                                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                          disabled={showAnswers}
+                                      />
+                                    </Label>
                                     <TooltipProvider>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -865,6 +852,7 @@ export function QuizCreator() {
                                             size="icon"
                                             onClick={() => handleRegenerateQuestion("fillInTheBlank", q)}
                                             disabled={!!isLoading.regenerating}
+                                            className="flex-shrink-0"
                                           >
                                             {isLoading.regenerating === q.id ? <Loader2 className="animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                                           </Button>
@@ -874,8 +862,8 @@ export function QuizCreator() {
                                     </TooltipProvider>
                                   </div>
                                   {showAnswers && (
-                                    <p className="mt-2 text-sm font-semibold text-green-600 dark:text-green-400 pl-6">
-                                      Answer: {q.answer}
+                                    <p className="mt-2 text-sm font-semibold text-green-600 dark:text-green-400">
+                                      Correct Answer: {q.answer}
                                     </p>
                                   )}
                                 </div>
@@ -885,7 +873,6 @@ export function QuizCreator() {
                       </AccordionContent>
                     </AccordionItem>
                   )}
-                  {/* Multiple Choice Section */}
                   {questions.multipleChoice.length > 0 && (
                     <AccordionItem value="multipleChoice">
                         <AccordionTrigger className="text-lg font-semibold">Multiple Choice ({questions.multipleChoice.length})</AccordionTrigger>
@@ -895,28 +882,28 @@ export function QuizCreator() {
                                 const result = gradedResult?.results[q.id];
                                 return (
                                 <div key={q.id} className={cn("p-4 rounded-lg border", result === true ? "border-green-500 bg-green-50 dark:bg-green-900/20" : result === false ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-gray-200 dark:border-gray-700")}>
-                                    <div className="flex justify-between items-start">
-                                    <p className="font-medium">{index + 1}. {q.question}</p>
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button variant="ghost" size="icon" onClick={() => handleRegenerateQuestion('multipleChoice', q)} disabled={!!isLoading.regenerating}>
-                                            {isLoading.regenerating === q.id ? <Loader2 className="animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Regenerate question</TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
+                                    <div className="flex justify-between items-start gap-4">
+                                      <p className="font-medium flex-grow">{index + 1}. {q.question}</p>
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button variant="ghost" size="icon" onClick={() => handleRegenerateQuestion('multipleChoice', q)} disabled={!!isLoading.regenerating} className="flex-shrink-0">
+                                              {isLoading.regenerating === q.id ? <Loader2 className="animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Regenerate question</TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     </div>
-                                    <RadioGroup onValueChange={(val) => handleAnswerChange(q.id, val)} value={userAnswers[q.id]} className="mt-4 space-y-2 pl-6" disabled={showAnswers}>
+                                    <RadioGroup onValueChange={(val) => handleAnswerChange(q.id, val)} value={userAnswers[q.id]} className="mt-4 space-y-2 pl-2" disabled={showAnswers}>
                                     {q.options?.map((option, i) => (
                                         <div key={i} className="flex items-center space-x-2">
-                                        <RadioGroupItem value={option.substring(0, 1)} id={`${q.id}-${i}`} />
-                                        <Label htmlFor={`${q.id}-${i}`}>{option}</Label>
+                                        <RadioGroupItem value={option} id={`${q.id}-${i}`} />
+                                        <Label htmlFor={`${q.id}-${i}`} className="font-normal">{String.fromCharCode(65 + i)}. {option}</Label>
                                         </div>
                                     ))}
                                     </RadioGroup>
-                                    {showAnswers && <p className="mt-2 text-sm font-semibold text-green-600 dark:text-green-400 pl-6">Answer: {q.answer}</p>}
+                                    {showAnswers && <p className="mt-2 text-sm font-semibold text-green-600 dark:text-green-400">Correct Answer: {q.answer}</p>}
                                 </div>
                                 );
                             })}
@@ -924,7 +911,6 @@ export function QuizCreator() {
                         </AccordionContent>
                     </AccordionItem>
                   )}
-                  {/* True/False Section */}
                   {questions.trueFalse.length > 0 && (
                     <AccordionItem value="trueFalse">
                       <AccordionTrigger className="text-lg font-semibold">True/False ({questions.trueFalse.length})</AccordionTrigger>
@@ -934,30 +920,30 @@ export function QuizCreator() {
                                 const result = gradedResult?.results[q.id];
                                 return (
                                 <div key={q.id} className={cn("p-4 rounded-lg border", result === true ? "border-green-500 bg-green-50 dark:bg-green-900/20" : result === false ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-gray-200 dark:border-gray-700")}>
-                                    <div className="flex justify-between items-start">
-                                    <p className="font-medium">{index + 1}. {q.question}</p>
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                        <Button variant="ghost" size="icon" onClick={() => handleRegenerateQuestion('trueFalse', q)} disabled={!!isLoading.regenerating}>
-                                            {isLoading.regenerating === q.id ? <Loader2 className="animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                                        </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Regenerate question</TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
+                                    <div className="flex justify-between items-start gap-4">
+                                      <p className="font-medium flex-grow">{index + 1}. {q.question}</p>
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                          <Button variant="ghost" size="icon" onClick={() => handleRegenerateQuestion('trueFalse', q)} disabled={!!isLoading.regenerating} className="flex-shrink-0">
+                                              {isLoading.regenerating === q.id ? <Loader2 className="animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                                          </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Regenerate question</TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     </div>
-                                    <RadioGroup onValueChange={(val) => handleAnswerChange(q.id, val)} value={userAnswers[q.id]} className="mt-4 space-y-2 pl-6" disabled={showAnswers}>
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="True" id={`${q.id}-true`} />
-                                        <Label htmlFor={`${q.id}-true`}>True</Label>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="False" id={`${q.id}-false`} />
-                                        <Label htmlFor={`${q.id}-false`}>False</Label>
-                                    </div>
+                                    <RadioGroup onValueChange={(val) => handleAnswerChange(q.id, val)} value={userAnswers[q.id]} className="mt-4 space-y-2 pl-2" disabled={showAnswers}>
+                                      <div className="flex items-center space-x-2">
+                                          <RadioGroupItem value="True" id={`${q.id}-true`} />
+                                          <Label htmlFor={`${q.id}-true`} className="font-normal">True</Label>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                          <RadioGroupItem value="False" id={`${q.id}-false`} />
+                                          <Label htmlFor={`${q.id}-false`} className="font-normal">False</Label>
+                                      </div>
                                     </RadioGroup>
-                                    {showAnswers && <p className="mt-2 text-sm font-semibold text-green-600 dark:text-green-400 pl-6">Answer: {q.answer}</p>}
+                                    {showAnswers && <p className="mt-2 text-sm font-semibold text-green-600 dark:text-green-400">Correct Answer: {q.answer}</p>}
                                 </div>
                                 );
                             })}
@@ -967,10 +953,9 @@ export function QuizCreator() {
                   )}
                 </Accordion>
 
-                {/* Grade Button */}
-                {!gradedResult && (
+                {hasQuestions && !gradedResult && (
                     <div className="mt-6">
-                        <Button onClick={handleGradeQuiz} className="w-full text-lg py-6 bg-accent hover:bg-accent/90">
+                        <Button onClick={handleGradeQuiz} className="w-full text-lg py-6 bg-accent hover:bg-accent/90 text-accent-foreground">
                             Grade My Quiz!
                         </Button>
                     </div>

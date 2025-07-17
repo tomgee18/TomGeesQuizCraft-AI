@@ -68,54 +68,52 @@ const ChartContainer = React.forwardRef<
 ChartContainer.displayName = "Chart"
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  // Validate inputs to prevent XSS
-  const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
-  
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme || config.color
-  )
+  const styleRef = React.useRef<HTMLStyleElement | null>(null);
 
-  if (!colorConfig.length) {
-    return null
-  }
-  
-  // Create style rules safely without dangerouslySetInnerHTML
-  const styleRules = Object.entries(THEMES)
-    .map(([theme, prefix]) => {
-      const themeRules = colorConfig
-        .map(([key, itemConfig]) => {
-          // Validate color values
-          const color = itemConfig.theme?.[theme as keyof typeof itemConfig.theme] || itemConfig.color;
-          const safeKey = key.replace(/[^a-zA-Z0-9-_]/g, '');
-          
-          // Only allow valid CSS color values
-          const isValidColor = color && 
-            (color.startsWith('#') || 
-             color.startsWith('rgb') || 
-             color.startsWith('hsl') || 
-             /^[a-zA-Z]+$/.test(color));
-          
-          return isValidColor ? `  --color-${safeKey}: ${color};` : null;
-        })
-        .filter(Boolean)
-        .join("\n");
-        
-      return `${prefix} [data-chart=${safeId}] {\n${themeRules}\n}`;
-    })
-    .join("\n");
-  
-  // Create a style element and append it to the document head
   React.useEffect(() => {
-    const styleElement = document.createElement('style');
-    styleElement.textContent = styleRules;
+    const styleElement = document.createElement("style");
+    styleElement.id = `${id}-style`;
     document.head.appendChild(styleElement);
+    styleRef.current = styleElement;
     
     return () => {
-      document.head.removeChild(styleElement);
+      if (styleRef.current) {
+        document.head.removeChild(styleRef.current);
+      }
     };
-  }, [styleRules]);
-  
-  // Return null since we're adding the style directly to the head
+  }, [id]);
+
+  React.useEffect(() => {
+    if (!styleRef.current) return;
+
+    const colorConfig = Object.entries(config).filter(
+      ([, config]) => config.theme || config.color
+    );
+
+    if (!colorConfig.length) {
+      styleRef.current.textContent = "";
+      return;
+    }
+
+    const styleRules = Object.entries(THEMES)
+      .map(([theme, prefix]) => {
+        const themeRules = colorConfig
+          .map(([key, itemConfig]) => {
+            const color =
+              itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
+              itemConfig.color;
+            return `  --color-${key}: ${color};`;
+          })
+          .join("\n");
+
+        return `${prefix} [data-chart=${id}] {\n${themeRules}\n}`;
+      })
+      .join("\n");
+      
+    styleRef.current.textContent = styleRules;
+  }, [id, config]);
+
+
   return null;
 }
 
