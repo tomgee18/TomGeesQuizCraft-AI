@@ -123,3 +123,4 @@ The following security improvements have been made since the initial report:
 3. Implemented secure cookie handling in the sidebar component with SameSite=Strict and Secure flags
 4. Added CSRF token validation for all state-changing operations
 5. Improved file upload validation with both MIME type and extension checks
+6. Enhanced question formatting in quiz exports with proper type-specific handling to prevent potential XSS vulnerabilities
