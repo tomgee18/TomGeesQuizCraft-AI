@@ -558,35 +558,52 @@ export function QuizCreator() {
       const blob = new Blob([fullText(true)], { type: "text/plain;charset=utf-8" });
       saveAs(blob, "quizcraft-questions.txt");
     } else if (format === 'pdf') {
-        const doc = new jsPDF();
-        doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(12);
-        const content = fullText(true);
-        const lines = doc.splitTextToSize(content, 180);
-        
-        let cursorY = 20;
-        const pageHeight = doc.internal.pageSize.height;
-        for (const line of lines) {
-            if (cursorY > pageHeight - 20) {
-                doc.addPage();
-                cursorY = 20;
-            }
-            doc.text(line, 15, cursorY);
-            cursorY += 7;
-        }
-        doc.save('quizcraft-questions.pdf');
+        try {
+            const doc = new jsPDF();
+            doc.setFont('Helvetica', 'normal');
+            doc.setFontSize(12);
+            const content = fullText(true);
+            const lines = doc.splitTextToSize(content, 180);
 
+            let cursorY = 20;
+            const pageHeight = doc.internal.pageSize.height;
+            for (const line of lines) {
+                if (cursorY > pageHeight - 20) {
+                    doc.addPage();
+                    cursorY = 20;
+                }
+                doc.text(line, 15, cursorY);
+                cursorY += 7;
+            }
+            doc.save('quizcraft-questions.pdf');
+        } catch (error) {
+            console.error("Error generating PDF:", error);
+            toast({
+                variant: "destructive",
+                title: "PDF Generation Failed",
+                description: "Could not generate PDF. Please try another format."
+            });
+        }
     } else if (format === 'docx') {
-        const doc = new DocxDocument({
-            sections: [{
-                children: fullText(true).split('\n').map(line => new Paragraph({
-                    children: [new TextRun(line)]
-                }))
-            }]
-        });
-        Packer.toBlob(doc).then(blob => {
-            saveAs(blob, 'quizcraft-questions.docx');
-        });
+        try {
+            const doc = new DocxDocument({
+                sections: [{
+                    children: fullText(true).split('\n').map(line => new Paragraph({
+                        children: [new TextRun(line)]
+                    }))
+                }]
+            });
+            Packer.toBlob(doc).then(blob => {
+                saveAs(blob, 'quizcraft-questions.docx');
+            });
+        } catch (error) {
+            console.error("Error generating DOCX:", error);
+            toast({
+                variant: "destructive",
+                title: "DOCX Generation Failed",
+                description: "Could not generate DOCX. Please try another format."
+            });
+        }
     } else if (format === "json") {
       const json = JSON.stringify(questions, null, 2);
       const blob = new Blob([json], { type: "application/json;charset=utf-8" });
