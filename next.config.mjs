@@ -19,6 +19,41 @@ const nextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    // Handle Node.js specific modules in client-side bundles
+    if (!isServer) {
+      // Prevent webpack from trying to bundle these Node.js dependencies
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        // OpenTelemetry related
+        '@opentelemetry/exporter-jaeger': false,
+        '@opentelemetry/sdk-node': false,
+        // Node.js core modules
+        fs: false,
+        net: false,
+        tls: false,
+        child_process: false,
+        crypto: require.resolve('crypto-browserify'),
+        stream: require.resolve('stream-browserify'),
+        buffer: require.resolve('buffer/'),
+        util: require.resolve('util/'),
+        path: require.resolve('path-browserify'),
+      };
+    }
+
+    // Add noParse rule for problematic modules
+    config.module.noParse = [
+      /node_modules\/handlebars/,
+    ];
+
+    // Add resolve aliases for problematic modules
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      handlebars: 'handlebars/dist/handlebars.min.js',
+    };
+
+    return config;
+  },
 };
 
 export default nextConfig;
