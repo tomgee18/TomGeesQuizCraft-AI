@@ -1,4 +1,11 @@
-// Helper to generate the full text content of the quiz.
+    // Helper to format a single question with its options if it's an MCQ.
+    const questionText = (q: Question) => {
+        if(q.type === 'mcq' && q.options) {
+            return `${q.question}\n${q.options.join('\n')}`;
+        }
+        return q.question.replace('____', '________________');
+    }
+    // Helper to generate the full text content of the quiz.
     const fullText = (showAnswers: boolean) => 
         ['Fill-in-the-Blank', 'Multiple Choice', 'True/False'].map(type => {
             const qList = type === 'Fill-in-the-Blank' ? questions.fillInTheBlank : type === 'Multiple Choice' ? questions.multipleChoice : questions.trueFalse;
