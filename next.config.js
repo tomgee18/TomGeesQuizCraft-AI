@@ -1,4 +1,5 @@
 // Next.js configuration
+const webpack = require('webpack');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -42,14 +43,14 @@ const nextConfig = {
 
       // Add buffer polyfill
       config.plugins.push(
-        new config.webpack.ProvidePlugin({
+        new webpack.ProvidePlugin({
           Buffer: ['buffer', 'Buffer'],
         })
       );
 
       // Add process polyfill
       config.plugins.push(
-        new config.webpack.ProvidePlugin({
+        new webpack.ProvidePlugin({
           process: 'process/browser',
         })
       );
