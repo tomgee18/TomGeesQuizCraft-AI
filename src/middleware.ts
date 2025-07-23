@@ -20,7 +20,7 @@ export function middleware(request: NextRequest) {
 
   const cspHeader = [
     `default-src 'self'`,
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https: http: 'unsafe-inline'`,
+    `script-src 'self' 'unsafe-eval' 'nonce-${nonce}' 'strict-dynamic' https: http: 'unsafe-inline'`,
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `font-src 'self' https://fonts.gstatic.com`,
     `img-src 'self' data: https://storage.googleapis.com https://placehold.co`,
