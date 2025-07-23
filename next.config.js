@@ -1,4 +1,5 @@
-// Converted from next.config.ts to next.config.mjs for Next.js compatibility
+// Next.js configuration
+const webpack = require('webpack');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -39,6 +40,20 @@ const nextConfig = {
         util: require.resolve('util/'),
         path: require.resolve('path-browserify'),
       };
+
+      // Add buffer polyfill
+      config.plugins.push(
+        new webpack.ProvidePlugin({
+          Buffer: ['buffer', 'Buffer'],
+        })
+      );
+
+      // Add process polyfill
+      config.plugins.push(
+        new webpack.ProvidePlugin({
+          process: 'process/browser',
+        })
+      );
     }
 
     // Add noParse rule for problematic modules
@@ -56,4 +71,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
