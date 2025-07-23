@@ -20,6 +20,20 @@ const nextConfig = {
       },
     ],
   },
+  // Add headers configuration for Content Security Policy
+  headers: async () => {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+          }
+        ]
+      }
+    ];
+  },
   webpack: (config, { isServer }) => {
     // Handle Node.js specific modules in client-side bundles
     if (!isServer) {
