@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 
 /**
  * Middleware to add security headers to all responses
+ * In development mode, CSP is disabled to allow JavaScript evaluation
  */
 export function middleware(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
@@ -18,21 +19,29 @@ export function middleware(request: NextRequest) {
     },
   });
 
-  const cspHeader = [
-    `default-src 'self'`,
-    `script-src 'self' 'unsafe-eval' 'nonce-${nonce}' 'strict-dynamic' https: http: 'unsafe-inline'`,
-    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-    `font-src 'self' https://fonts.gstatic.com`,
-    `img-src 'self' data: https://storage.googleapis.com https://placehold.co`,
-    `connect-src 'self' https://generativelanguage.googleapis.com`,
-    `object-src 'none'`,
-    `form-action 'self'`,
-    `frame-ancestors 'none'`,
-    `base-uri 'self'`,
-    `upgrade-insecure-requests`,
-  ].join('; ');
+  // Check if we're in development mode
+  const isDevelopment = process.env.NODE_ENV === 'development';
 
-  response.headers.set('Content-Security-Policy', cspHeader);
+  // Only apply CSP in production mode
+  if (!isDevelopment) {
+    const cspHeader = [
+      `default-src 'self'`,
+      `script-src 'self' 'unsafe-eval' 'nonce-${nonce}' 'strict-dynamic' https: http: 'unsafe-inline'`,
+      `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+      `font-src 'self' https://fonts.gstatic.com`,
+      `img-src 'self' data: https://storage.googleapis.com https://placehold.co`,
+      `connect-src 'self' https://generativelanguage.googleapis.com`,
+      `object-src 'none'`,
+      `form-action 'self'`,
+      `frame-ancestors 'none'`,
+      `base-uri 'self'`,
+      `upgrade-insecure-requests`,
+    ].join('; ');
+
+    response.headers.set('Content-Security-Policy', cspHeader);
+  }
+
+  // Other security headers that don't interfere with development
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-XSS-Protection', '1; mode=block');
