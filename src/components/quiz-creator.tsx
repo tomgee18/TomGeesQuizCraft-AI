@@ -659,7 +659,7 @@ export function QuizCreator() {
                 <span>API Key</span>
               </CardTitle>
               <CardDescription>
-                Enter your Google Gemini API key. It's stored securely in your browser's session storage.
+                Enter your Google Gemini API key. It&apos;s stored securely in your browser&apos;s session storage.
               </CardDescription>
             </CardHeader>
             <CardContent>
